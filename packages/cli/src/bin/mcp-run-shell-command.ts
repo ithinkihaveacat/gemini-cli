@@ -27,33 +27,32 @@ server.registerTool(
 This tool allows you to run command-line utilities, scripts, and system commands.
 It supports standard shell features like piping and redirection, allowing you to filter and process output directly.
 
-### capabilities
-- **Execution**: Runs commands in a sub-shell (bash on Unix, PowerShell/cmd on Windows).
-- **Streaming**: Captures stdout and stderr.
-- **Environment**: Inherits the host environment variables.
+### Capabilities
+
+- Execution: Runs commands in a sub-shell (bash on Unix, PowerShell/cmd on Windows).
+- Environment: Inherits the host environment variables.
 
 ### Examples
 
-**1. Basic Execution:**
-List files in the current directory:
-\`ls -la\`
+1. Basic Execution
+   List files in the current directory:
+   ls -la
 
-**2. searching and Filtering (Pipes):**
-Find specific processes using \`grep\`:
-\`ps aux | grep node\`
+2. Searching and Filtering (Pipes)
+   Find specific processes using grep:
+   ps aux | grep node
 
-**3. File Operations (Redirection):**
-Write command output to a file:
-\`echo "log entry" >> system.log\`
+3. File Operations (Redirection)
+   Write command output to a file:
+   echo "log entry" >> system.log
 
-**4. Chaining Commands:**
-Run multiple commands in sequence:
-\`npm install && npm run build\`
+4. Chaining Commands
+   Run multiple commands in sequence:
+   npm install && npm run build
 
-**5. Processing JSON:**
-Use \`jq\` to extract data (if installed):
-\`cat data.json | jq .version\`
-`,
+5. Processing JSON
+   Use jq to extract data (if installed):
+   cat data.json | jq .version`,
     inputSchema: {
       command: z.string().describe('The command to execute'),
       description: z.string().optional().describe('Description of the command'),
