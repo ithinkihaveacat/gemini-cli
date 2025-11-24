@@ -33,13 +33,11 @@ import {
   runExitCleanup,
 } from './utils/cleanup.js';
 import { getCliVersion } from './utils/version.js';
-import type {
-  Config,
-  ResumedSessionData,
-  OutputPayload,
-  ConsoleLogPayload,
-} from '@google/gemini-cli-core';
 import {
+  type Config,
+  type ResumedSessionData,
+  type OutputPayload,
+  type ConsoleLogPayload,
   sessionId,
   logUserPrompt,
   AuthType,
@@ -53,6 +51,11 @@ import {
   patchStdio,
   writeToStdout,
   writeToStderr,
+  disableMouseEvents,
+  enableMouseEvents,
+  enterAlternateScreen,
+  disableLineWrapping,
+  shouldEnterAlternateScreen,
 } from '@google/gemini-cli-core';
 import {
   initializeApp,
@@ -85,9 +88,7 @@ import { deleteSession, listSessions } from './utils/sessions.js';
 import { ExtensionManager } from './config/extension-manager.js';
 import { createPolicyUpdater } from './config/policy.js';
 import { requestConsentNonInteractive } from './config/extensions/consent.js';
-import { disableMouseEvents, enableMouseEvents } from './ui/utils/mouse.js';
 import { ScrollProvider } from './ui/contexts/ScrollProvider.js';
-import ansiEscapes from 'ansi-escapes';
 import { isAlternateBufferEnabled } from './ui/hooks/useAlternateBuffer.js';
 
 import { profiler } from './ui/components/DebugProfiler.js';
@@ -111,7 +112,7 @@ export function validateDnsResolutionOrder(
   return defaultValue;
 }
 
-function getNodeMemoryArgs(isDebugMode: boolean): string[] {
+export function getNodeMemoryArgs(isDebugMode: boolean): string[] {
   const totalMemoryMB = os.totalmem() / (1024 * 1024);
   const heapStats = v8.getHeapStatistics();
   const currentMaxOldSpaceSizeMb = Math.floor(
@@ -176,8 +177,10 @@ export async function startInteractiveUI(
   // as there is no benefit of alternate buffer mode when using a screen reader
   // and the Ink alternate buffer mode requires line wrapping harmful to
   // screen readers.
-  const useAlternateBuffer =
-    isAlternateBufferEnabled(settings) && !config.getScreenReader();
+  const useAlternateBuffer = shouldEnterAlternateScreen(
+    isAlternateBufferEnabled(settings),
+    config.getScreenReader(),
+  );
   const mouseEventsEnabled = useAlternateBuffer;
   if (mouseEventsEnabled) {
     enableMouseEvents();
@@ -449,7 +452,11 @@ export async function main() {
     createPolicyUpdater(policyEngine, messageBus);
 
     // Cleanup sessions after config initialization
-    await cleanupExpiredSessions(config, settings.merged);
+    try {
+      await cleanupExpiredSessions(config, settings.merged);
+    } catch (e) {
+      debugLogger.error('Failed to cleanup expired sessions:', e);
+    }
 
     if (config.getListExtensions()) {
       debugLogger.log('Installed extensions:');
@@ -481,8 +488,14 @@ export async function main() {
       // input showing up in the output.
       process.stdin.setRawMode(true);
 
-      if (isAlternateBufferEnabled(settings)) {
-        writeToStdout(ansiEscapes.enterAlternativeScreen);
+      if (
+        shouldEnterAlternateScreen(
+          isAlternateBufferEnabled(settings),
+          config.getScreenReader(),
+        )
+      ) {
+        enterAlternateScreen();
+        disableLineWrapping();
 
         // Ink will cleanup so there is no need for us to manually cleanup.
       }
@@ -625,7 +638,7 @@ function setWindowTitle(title: string, settings: LoadedSettings) {
   }
 }
 
-function initializeOutputListenersAndFlush() {
+export function initializeOutputListenersAndFlush() {
   // If there are no listeners for output, make sure we flush so output is not
   // lost.
   if (coreEvents.listenerCount(CoreEvent.Output) === 0) {
