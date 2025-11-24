@@ -12,7 +12,8 @@ input/output interface of the existing `ShellTool` as closely as possible.
 
 ## Architecture
 
-- **Location:** `packages/cli/src/bin/mcp-server.ts` (New entry point).
+- **Location:** `packages/cli/src/bin/mcp-run-shell-command.ts` (New entry
+  point).
 - **Dependencies:**
   - `packages/core`: Re-use `ShellExecutionService` and `shell-utils`.
   - `@modelcontextprotocol/sdk`: For MCP server implementation.
@@ -31,7 +32,8 @@ Update `packages/cli/package.json` to include:
 
 ### 2. Create MCP Server Entry Point
 
-Create a new file `packages/cli/src/bin/mcp-server.ts`. This file will:
+Create a new file `packages/cli/src/bin/mcp-run-shell-command.ts`. This file
+will:
 
 1.  **Initialize `McpServer`:**
 
