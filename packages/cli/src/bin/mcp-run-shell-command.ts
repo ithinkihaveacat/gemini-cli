@@ -99,20 +99,10 @@ It supports standard shell features like piping and redirection, allowing you to
       command,
       directory: dir_path || cwd,
       stdout: executionResult.output || '',
-      // Note: ShellExecutionService merges stdout/stderr into 'output' when not using PTY for some paths,
-      // but 'rawOutput' might contain everything.
-      // However, looking at ShellExecutionService.childProcessFallback, it captures them separately but returns combined 'output'.
-      // It *does* not explicitly return separate stdout/stderr in the result interface 'ShellExecutionResult'.
-      // It returns 'output' (combined) and 'rawOutput' (buffer).
-      // For structured output, we might want to separate them if the service supported it,
-      // but currently ShellExecutionResult definition is:
-      // export interface ShellExecutionResult { ... output: string; ... }
-      // So we will map 'output' to 'stdout' for now as that's the primary carrier, and leave stderr empty or see if we can parse.
-      // Actually, ShellExecutionService.childProcessFallback combines them: `stdout + (stderr ? ... : '')`.
-      // So 'stdout' here really means "combined output".
-      // We will explicitly label it as such in the schema if we could, but 'stdout' is standard conventions.
-      // Let's stick to the available data.
-      stderr: '', // Not separately available in current ShellExecutionResult interface
+      // ShellExecutionService combines stdout and stderr into a single 'output' string.
+      // Since separate streams are not available in the result, we map the combined output
+      // to 'stdout' and leave 'stderr' empty.
+      stderr: '',
       exitCode: executionResult.exitCode,
       signal: executionResult.signal,
       error: executionResult.error ? executionResult.error.message : undefined,
