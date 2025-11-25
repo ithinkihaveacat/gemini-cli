@@ -94,22 +94,38 @@ function registerMcpTool(server: McpServer, tool: AnyDeclarativeTool) {
       try {
         const result = await tool.buildAndExecute(params as any, signal);
 
+        if (
+          typeof result.llmContent === 'object' &&
+          result.llmContent !== null &&
+          !Array.isArray(result.llmContent)
+        ) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result.llmContent, null, 2),
+              },
+            ],
+            structuredContent: result.llmContent as any,
+          };
+        }
+
         let textContent = '';
         if (typeof result.llmContent === 'string') {
           textContent = result.llmContent;
         } else if (Array.isArray(result.llmContent)) {
-            textContent = result.llmContent.map((part: any) => {
-                if ('text' in part) return part.text;
-                return JSON.stringify(part);
-            }).join('\n');
+          textContent = result.llmContent
+            .map((part: any) => {
+              if ('text' in part) return part.text;
+              return JSON.stringify(part);
+            })
+            .join('\n');
         } else {
-             textContent = JSON.stringify(result.llmContent);
+          textContent = JSON.stringify(result.llmContent);
         }
 
         return {
-          content: [
-            { type: 'text', text: textContent }
-          ]
+          content: [{ type: 'text', text: textContent }],
         };
       } catch (error: any) {
         return {
