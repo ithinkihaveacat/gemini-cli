@@ -56,6 +56,7 @@ import type { Config } from '@google/gemini-cli-core';
 import { CommandKind } from '../ui/commands/types.js';
 
 import { restoreCommand } from '../ui/commands/restoreCommand.js';
+import { ideCommand } from '../ui/commands/ideCommand.js';
 
 vi.mock('../ui/commands/authCommand.js', () => ({ authCommand: {} }));
 vi.mock('../ui/commands/bugCommand.js', () => ({ bugCommand: {} }));
@@ -184,6 +185,22 @@ describe('BuiltinCommandLoader', () => {
     const commands = await loader.loadCommands(new AbortController().signal);
     const policiesCmd = commands.find((c) => c.name === 'policies');
     expect(policiesCmd).toBeDefined();
+  });
+
+  it('should continue to load other commands if an async command factory fails', async () => {
+    (ideCommand as Mock).mockRejectedValueOnce(
+      new Error('IDE connection failed'),
+    );
+    const loader = new BuiltinCommandLoader(mockConfig);
+    const commands = await loader.loadCommands(new AbortController().signal);
+
+    // The 'ide' command should be missing because it failed.
+    const ideCmd = commands.find((c) => c.name === 'ide');
+    expect(ideCmd).toBeUndefined();
+
+    // But other commands like 'about' should still be loaded.
+    const aboutCmd = commands.find((c) => c.name === 'about');
+    expect(aboutCmd).toBeDefined();
   });
 });
 

@@ -8,7 +8,7 @@ import { isDevelopment } from '../utils/installationInfo.js';
 import type { ICommandLoader } from './types.js';
 import type { SlashCommand } from '../ui/commands/types.js';
 import type { Config } from '@google/gemini-cli-core';
-import { startupProfiler } from '@google/gemini-cli-core';
+import { startupProfiler, debugLogger } from '@google/gemini-cli-core';
 import { aboutCommand } from '../ui/commands/aboutCommand.js';
 import { authCommand } from '../ui/commands/authCommand.js';
 import { bugCommand } from '../ui/commands/bugCommand.js';
@@ -60,6 +60,14 @@ export class BuiltinCommandLoader implements ICommandLoader {
    */
   async loadCommands(_signal: AbortSignal): Promise<SlashCommand[]> {
     const handle = startupProfiler.start('load_builtin_commands');
+
+    let ideCmd: SlashCommand | null = null;
+    try {
+      ideCmd = await ideCommand();
+    } catch (e) {
+      debugLogger.debug('Failed to load ide command:', e);
+    }
+
     const allDefinitions: Array<SlashCommand | null> = [
       aboutCommand,
       authCommand,
@@ -75,7 +83,7 @@ export class BuiltinCommandLoader implements ICommandLoader {
       extensionsCommand(this.config?.getEnableExtensionReloading()),
       helpCommand,
       ...(this.config?.getEnableHooks() ? [hooksCommand] : []),
-      await ideCommand(),
+      ideCmd,
       initCommand,
       mcpCommand,
       memoryCommand,
