@@ -1,0 +1,18 @@
+{
+  "name": "gemini-custom-tools",
+  "version": "1.0.0",
+  "description": "Custom tools for Gemini CLI",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/gemini-history.js"
+  },
+  "dependencies": {
+    "@google/gemini-cli-core": "file:../packages/core",
+    "@google/genai": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
