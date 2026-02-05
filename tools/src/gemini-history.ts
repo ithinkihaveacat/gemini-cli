@@ -12,6 +12,7 @@ import type {
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { parseArgs } from "node:util";
 
 function usage() {
   const scriptName = path.basename(process.argv[1]);
@@ -33,43 +34,41 @@ Examples:
   # Show the history directory path
   ${scriptName} --dir .
 `);
+}
+
+const { values, positionals } = parseArgs({
+  options: {
+    help: {
+      type: "boolean",
+      short: "h"
+    },
+    dir: {
+      type: "boolean"
+    }
+  },
+  allowPositionals: true
+});
+
+if (values.help) {
+  usage();
   process.exit(0);
 }
 
-const args = process.argv.slice(2);
-let showDir = false;
-let targetDirArg: string | undefined;
-
-for (let i = 0; i < args.length; i++) {
-  const arg = args[i];
-  if (arg === "-h" || arg === "--help") {
-    usage();
-  } else if (arg === "--dir") {
-    showDir = true;
-  } else if (arg.startsWith("-")) {
-    console.error(`Unknown option ${arg}`);
-    process.exit(1);
-  } else {
-    if (targetDirArg) {
-      // Multiple directories not supported? Original script takes "$1" after parsing, ignoring others or putting them in POSITIONAL_ARGS.
-      // Original script: POSITIONAL_ARGS+=("$1"); shift. Then set -- "${POSITIONAL_ARGS[@]}"; if [ -z "$1" ]...
-      // It effectively takes the first positional arg as the directory.
-      // We will do the same: ignore extra args or error?
-      // Shell script usage implies only one directory.
-      // Let's just take the first one and ignore or error on others.
-      // Given "Arguments: DIRECTORY", singular, implies one.
-    } else {
-      targetDirArg = arg;
-    }
-  }
-}
-
-if (!targetDirArg) {
+if (positionals.length === 0) {
   usage();
+  process.exit(1);
 }
+
+if (positionals.length > 1) {
+  console.error("Error: Too many arguments. Expected exactly one directory.");
+  process.exit(1);
+}
+
+const targetDirArg = positionals[0];
+const showDir = values.dir;
 
 // Check if the target directory itself exists
-const resolvedTargetDir = path.resolve(targetDirArg!);
+const resolvedTargetDir = path.resolve(targetDirArg);
 if (
   !fs.existsSync(resolvedTargetDir) ||
   !fs.statSync(resolvedTargetDir).isDirectory()
