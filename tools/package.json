@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "@google/gemini-cli-core": "file:../packages/core",
-    "@google/genai": "^1.30.0"
+    "@google/genai": "^1.40.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "^25.2.0",
+    "typescript": "^5.9.3"
   }
 }
