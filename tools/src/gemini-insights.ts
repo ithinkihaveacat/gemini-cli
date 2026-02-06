@@ -53,7 +53,7 @@ Arguments:
 Options:
   --limit NUMBER    Number of recent conversations to analyze (default: ${DEFAULT_CONVERSATION_LIMIT}).
   --all             Analyze all conversations (overrides --limit).
-  --raw FILE        Output raw analysis data to FILE (Markdown format).
+  --dump-analysis FILE  Output intermediate analysis data to FILE (Markdown format).
   -h, --help        Display this help message and exit
 
 Environment:
@@ -75,7 +75,7 @@ async function main() {
       help: { type: "boolean", short: "h" },
       limit: { type: "string" },
       all: { type: "boolean" },
-      raw: { type: "string" }
+      "dump-analysis": { type: "string" }
     },
     allowPositionals: true
   });
@@ -162,7 +162,7 @@ async function main() {
     process.exit(0);
   }
 
-  if (values.raw) {
+  if (values["dump-analysis"]) {
     let rawOutput = "# Raw Analysis Output\n\n";
     for (const insight of sessionInsights) {
       if (insight.sessionFile) {
@@ -180,8 +180,8 @@ async function main() {
       }
       rawOutput += "---\n\n";
     }
-    fs.writeFileSync(values.raw, rawOutput);
-    console.error(`Raw output written to: ${values.raw}`);
+    fs.writeFileSync(values["dump-analysis"], rawOutput);
+    console.error(`Raw output written to: ${values["dump-analysis"]}`);
   }
 
   console.error("\nAggregating insights...");
@@ -246,7 +246,7 @@ async function analyzeInParallel(
           }
           completed++;
 
-          const msg = `\rAnalyzing ${completed}/${total}: ${path.basename(filePath)} | Raw: ${formatBytes(rawSize)} -> Sum: ${formatBytes(sumSize)} | Total Sum: ${formatBytes(totalSummarizedBytes)}`;
+          const msg = `\rAnalyzing chat ${completed}/${total}: ${path.basename(filePath)}... Done. | Raw: ${formatBytes(rawSize)} -> Summary: ${formatBytes(sumSize)} | Total Summary: ${formatBytes(totalSummarizedBytes)}`;
           // Clear line to avoid artifacts
           process.stderr.clearLine(0);
           process.stderr.cursorTo(0);
