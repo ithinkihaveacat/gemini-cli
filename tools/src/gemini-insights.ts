@@ -24,6 +24,7 @@ const MAX_TOTAL_RETRIES = 10;
 const MAX_AGGREGATION_BYTES = 700000;
 
 interface SessionInsight {
+  sessionFile?: string;
   tools?: Array<{
     category: string;
     specific_tool: string;
@@ -47,6 +48,7 @@ Arguments:
 Options:
   --limit NUMBER    Number of recent conversations to analyze (default: ${DEFAULT_CONVERSATION_LIMIT}).
   --all             Analyze all conversations (overrides --limit).
+  --raw FILE        Output raw analysis data to FILE (Markdown format).
   -h, --help        Display this help message and exit
 
 Environment:
@@ -59,7 +61,8 @@ async function main() {
     options: {
       help: { type: "boolean", short: "h" },
       limit: { type: "string" },
-      all: { type: "boolean" }
+      all: { type: "boolean" },
+      raw: { type: "string" }
     },
     allowPositionals: true
   });
@@ -142,6 +145,28 @@ async function main() {
     process.exit(0);
   }
 
+  if (values.raw) {
+    let rawOutput = "# Raw Analysis Output\n\n";
+    for (const insight of sessionInsights) {
+      if (insight.sessionFile) {
+        rawOutput += `## Session: ${path.basename(insight.sessionFile)}\n\n`;
+      } else {
+        rawOutput += `## Session: Unknown\n\n`;
+      }
+
+      if (insight.tools && insight.tools.length > 0) {
+        rawOutput += "```json\n";
+        rawOutput += JSON.stringify(insight.tools, null, 2);
+        rawOutput += "\n```\n\n";
+      } else {
+        rawOutput += "_No tools detected._\n\n";
+      }
+      rawOutput += "---\n\n";
+    }
+    fs.writeFileSync(values.raw, rawOutput);
+    console.error(`Raw output written to: ${values.raw}`);
+  }
+
   console.error("Aggregating insights...");
   const finalReport = await aggregateInsights(sessionInsights, genAI);
   console.log(finalReport);
@@ -170,6 +195,14 @@ async function analyzeInParallel(
       }
 
       while (activePromises.size < CONCURRENCY_LIMIT && queue.length > 0) {
+        if (totalBytesCollected >= MAX_AGGREGATION_BYTES) {
+          console.error(
+            `\nLimit of ${MAX_AGGREGATION_BYTES} bytes reached during analysis. Stopping early.`
+          );
+          queue.length = 0; // Clear queue
+          break;
+        }
+
         const filePath = queue.shift()!;
         const promise = (async () => {
           const result = await processLogFileWithRetry(filePath, genAI);
@@ -340,7 +373,9 @@ ${transcript.slice(0, 60000)}
 
   const text = result.text;
   if (!text) return null;
-  return JSON.parse(text);
+  const data = JSON.parse(text);
+  data.sessionFile = filePath;
+  return data;
 }
 
 async function aggregateInsights(
@@ -355,9 +390,8 @@ async function aggregateInsights(
 
   if (inputSize > MAX_AGGREGATION_BYTES) {
     console.error(
-      `ERROR: Input data (${inputSize} bytes) exceeds the limit of ${MAX_AGGREGATION_BYTES} bytes. Aborting to avoid token limits.`
+      `WARNING: Input data (${inputSize} bytes) exceeds the limit of ${MAX_AGGREGATION_BYTES} bytes. Aggregation might fail.`
     );
-    process.exit(1);
   }
 
   const prompt = `

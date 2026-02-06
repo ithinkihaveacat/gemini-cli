@@ -79,6 +79,8 @@ node tools/dist/gemini-insights.js [OPTIONS] DIRECTORY
 
 - `--limit <NUMBER>`: Analyze the N most recent conversations (default: 30).
 - `--all`: Analyze all conversations in the directory.
+- `--raw <FILE>`: Save the raw analysis data (JSON chunks per session) to a
+  Markdown file.
 
 **Requirements:**
 
