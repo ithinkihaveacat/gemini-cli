@@ -125,7 +125,9 @@ async function main() {
     }))
     .sort((a, b) => b.time - a.time); // Newest first
 
-  if (chatFiles.length === 0) {
+  const totalFoundCount = chatFiles.length;
+
+  if (totalFoundCount === 0) {
     console.log("No chat logs found.");
     process.exit(0);
   }
@@ -143,11 +145,14 @@ async function main() {
     console.error(`Analyzing all ${chatFiles.length} logs...`);
   }
 
+  const selectedCount = chatFiles.length;
+
   const {
     results: sessionInsights,
     totalRawBytes,
     totalSummarizedBytes,
-    failedCount
+    failedCount,
+    skippedCount
   } = await analyzeInParallel(
     chatFiles.map((f) => f.path),
     genAI
@@ -183,8 +188,11 @@ async function main() {
   console.error("\nAggregating insights...");
   const finalReport = await aggregateInsights(sessionInsights, genAI, {
     directory: resolvedTargetDir,
+    totalFound: totalFoundCount,
+    selectedCount: selectedCount,
     analyzedCount: sessionInsights.length,
-    failedCount,
+    failedCount: failedCount,
+    skippedCount: skippedCount,
     totalRawBytes,
     totalSummarizedBytes
   });
@@ -202,6 +210,7 @@ async function analyzeInParallel(
   totalRawBytes: number;
   totalSummarizedBytes: number;
   failedCount: number;
+  skippedCount: number;
 }> {
   const results: SessionInsight[] = [];
   const queue = [...filePaths];
@@ -211,6 +220,7 @@ async function analyzeInParallel(
   let totalRawBytes = 0;
   let totalSummarizedBytes = 0;
   let failedCount = 0;
+  let skippedCount = 0;
 
   return new Promise((resolve) => {
     const next = () => {
@@ -218,7 +228,13 @@ async function analyzeInParallel(
         if (process.stderr.isTTY) {
           process.stderr.write("\n"); // Clear progress line
         }
-        resolve({ results, totalRawBytes, totalSummarizedBytes, failedCount });
+        resolve({
+          results,
+          totalRawBytes,
+          totalSummarizedBytes,
+          failedCount,
+          skippedCount
+        });
         return;
       }
 
@@ -227,6 +243,7 @@ async function analyzeInParallel(
           console.error(
             `\nLimit of ${formatBytes(MAX_AGGREGATION_BYTES)} reached (collected ${formatBytes(totalSummarizedBytes)}). Stopping analysis early.`
           );
+          skippedCount = queue.length;
           queue.length = 0; // Clear queue
           break;
         }
@@ -435,8 +452,11 @@ async function aggregateInsights(
   genAI: GoogleGenAI,
   metadata: {
     directory: string;
+    totalFound: number;
+    selectedCount: number;
     analyzedCount: number;
     failedCount: number;
+    skippedCount: number;
     totalRawBytes: number;
     totalSummarizedBytes: number;
   }
@@ -465,11 +485,17 @@ You are a Product Manager for an "AI for Android Development" platform.
 
 <context>
 Target Directory: ${metadata.directory}
-Analyzed Sessions: ${metadata.analyzedCount}
-Failed/Skipped Sessions: ${metadata.failedCount}
-Total Raw Input Log Size: ${formatBytes(metadata.totalRawBytes)}
-Total Summarized Input Size: ${formatBytes(metadata.totalSummarizedBytes)}
-Compression Ratio: ${(metadata.totalRawBytes / metadata.totalSummarizedBytes || 0).toFixed(1)}x
+Input Statistics:
+- Total Logs Found: ${metadata.totalFound}
+- Logs Selected for Analysis: ${metadata.selectedCount}
+- Successfully Analyzed: ${metadata.analyzedCount}
+- Failed Analysis: ${metadata.failedCount}
+- Skipped (Size Limit Reached): ${metadata.skippedCount}
+
+Data Volume:
+- Total Raw Input Log Size: ${formatBytes(metadata.totalRawBytes)}
+- Total Summarized Input Size: ${formatBytes(metadata.totalSummarizedBytes)}
+- Compression Ratio: ${(metadata.totalRawBytes / metadata.totalSummarizedBytes || 0).toFixed(1)}x
 </context>
 
 <instructions>
@@ -478,7 +504,7 @@ The goal of this report is to inform the development of a standard toolset for A
 
 **Report Structure:**
 
-1.  **Report Metadata**: Start with a section listing the Target Directory, Analyzed Sessions, Failed Sessions (if any), Input Data Sizes, and Compression Ratio.
+1.  **Report Metadata**: Start with a section listing the Target Directory and a summary of the Input Statistics (Total, Selected, Analyzed, Failed, Skipped).
 2.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
 3.  **Essential Toolset (The "Standard Library")**:
     *   Group tools logically (5-10 categories).
