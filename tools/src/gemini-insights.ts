@@ -256,25 +256,27 @@ async function processLogFile(
   // Refined prompt based on gemini-text-analysis.md strategies
   const prompt = `
 <role>
-You are an expert software engineering analyst specializing in extracting tool usage patterns from AI agent logs.
+You are an expert software engineering analyst specializing in evaluating the effectiveness of tools used by AI agents.
 </role>
 
 <instructions>
 1. **Analyze** the provided log to identify every tool invocation, command, or distinct action taken by the agent.
-2. **Focus** on "tools" in the broadest sense:
+2. **Goal**: Identify which tools were essential, which were efficient, and where the agent struggled or needed to invent its own solutions.
+3. **Focus** on "tools" in the broadest sense:
     - Standard CLI tools (grep, find, git).
     - Build systems (gradlew).
     - Device interactions (adb, emumanager).
     - Specialized skills (jetpack-inspect, screenshot-compare).
     - *Debugging workflows*: Note simultaneous actions (e.g., background logcat + UI manipulation).
     - **Script Creation & Modification**: identify when the agent writes a script (bash, python, etc.) to investigate behavior or automate a task.
-3. **Extract** details for each tool:
+4. **Extract** details for each tool:
     - **Category**: Broad classification.
     - **Specific Tool**: The exact command or skill name.
     - **Params**: Key arguments/constraints (e.g., specific API levels, --snapshot).
     - **Context**: Why was it used? Was it part of a debugging loop?
     - **Human Intervention**: Did a human prompt its use or suggest the script creation?
     - **Hunt & Resolve**: Did the agent "hunt" for a tool or create one to resolve an error or missing capability?
+    - **Utility/Gap**: Was this tool highly effective, or was it a workaround for a missing capability?
 </instructions>
 
 <constraints>
@@ -338,30 +340,33 @@ async function aggregateInsights(
 
   const prompt = `
 <role>
-You are a technical lead creating a "Tool Usage Report" for an AI coding agent.
+You are a Product Manager for an "AI for Android Development" platform.
 </role>
 
 <instructions>
-Synthesize the provided JSON list of tool usages into a structured Markdown report.
+Synthesize the provided JSON list of tool usages into a comprehensive "Agent Capabilities & Tooling Requirements Report".
+The goal of this report is to inform the development of a standard toolset for Android-focused AI agents.
 
 **Report Structure:**
 
-1.  **Executive Summary**: High-level overview of the agent's toolkit and capabilities.
-2.  **Tool Categories**: Group tools logically (5-10 categories). For each:
-    *   List specific tools/commands.
-    *   Describe *how* and *why* they were used.
-3.  **Custom Tool Creation & Adaptation**:
-    *   Highlight instances where the agent **created** or **modified** scripts to solve a problem (e.g., reproduction scripts, automation).
-    *   Note if these were suggested by the human or self-initiated.
-    *   Describe "hunting" behaviors where the agent tried multiple tools or created a new one to resolve an error.
-4.  **Debugging & Advanced Workflows**:
-    *   Highlight complex interactions (e.g., "The agent ran \`adb logcat\` in the background while triggering UI events via \`adb shell input\`").
-    *   Note efficient alternatives found (e.g., "Preferred \`adb-screenshot\` over \`screencap\` for speed").
-5.  **Edge Cases & Constraints**:
-    *   Specific versions (SNAPSHOTs, API levels).
-    *   Workarounds for environment limitations.
-6.  **Human-AI Collaboration**:
-    *   Instances where human guidance unlocked new tool capabilities.
+1.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
+2.  **Essential Toolset (The "Standard Library")**:
+    *   Group tools logically (5-10 categories).
+    *   For each, list the specific tools/commands that proved most useful.
+    *   Describe *why* they are essential for an Android agent.
+3.  **Custom Tool Creation & "Missing" Tools**:
+    *   Highlight instances where the agent **created** or **modified** scripts. These represent **GAPS** in the standard toolset.
+    *   Analyze "hunting" behaviors where the agent struggled to find the right tool.
+    *   *Actionable Insight*: What standard tool should be built to replace these ad-hoc scripts?
+4.  **Advanced Debugging Workflows**:
+    *   Describe complex, multi-step workflows (e.g., log injection + UI automation).
+    *   Highlight tools that enabled "super-human" or highly efficient debugging (e.g., AI vision for UI verification).
+5.  **Edge Cases & Environment Constraints**:
+    *   Specific versions (SNAPSHOTs, API levels) and how tools handled them.
+6.  **Recommendations for Future Tooling**:
+    *   Based on the analysis, propose a prioritized list of tools/capabilities that should be added to the core Android Agent platform to improve efficiency and autonomy.
+
+**Note:** The input data may be large. Do not truncate the list of tools; a longer, detailed report is preferred over a summary that misses edge cases.
 </instructions>
 
 <input_data>
