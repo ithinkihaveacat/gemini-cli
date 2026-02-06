@@ -168,7 +168,10 @@ async function main() {
   }
 
   console.error("Aggregating insights...");
-  const finalReport = await aggregateInsights(sessionInsights, genAI);
+  const finalReport = await aggregateInsights(sessionInsights, genAI, {
+    directory: resolvedTargetDir,
+    analyzedCount: sessionInsights.length
+  });
   console.log(finalReport);
 }
 
@@ -380,7 +383,8 @@ ${transcript.slice(0, 60000)}
 
 async function aggregateInsights(
   insights: SessionInsight[],
-  genAI: GoogleGenAI
+  genAI: GoogleGenAI,
+  metadata: { directory: string; analyzedCount: number }
 ): Promise<string> {
   const allTools = insights.flatMap((i) => i.tools || []);
   const inputData = JSON.stringify(allTools, null, 2);
@@ -399,27 +403,34 @@ async function aggregateInsights(
 You are a Product Manager for an "AI for Android Development" platform.
 </role>
 
+<context>
+Target Directory: ${metadata.directory}
+Analyzed Sessions: ${metadata.analyzedCount}
+Input Data Size: ${inputSize} bytes (Aggregated tool usage data from ${metadata.analyzedCount} sessions)
+</context>
+
 <instructions>
 Synthesize the provided JSON list of tool usages into a comprehensive "Agent Capabilities & Tooling Requirements Report".
 The goal of this report is to inform the development of a standard toolset for Android-focused AI agents.
 
 **Report Structure:**
 
-1.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
-2.  **Essential Toolset (The "Standard Library")**:
+1.  **Report Metadata**: Start with a section listing the Target Directory, Analyzed Sessions, and Input Data Size (in a human-readable format).
+2.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
+3.  **Essential Toolset (The "Standard Library")**:
     *   Group tools logically (5-10 categories).
     *   For each, list the specific tools/commands that proved most useful.
     *   Describe *why* they are essential for an Android agent.
-3.  **Custom Tool Creation & "Missing" Tools**:
+4.  **Custom Tool Creation & "Missing" Tools**:
     *   Highlight instances where the agent **created** or **modified** scripts. These represent **GAPS** in the standard toolset.
     *   Analyze "hunting" behaviors where the agent struggled to find the right tool.
     *   *Actionable Insight*: What standard tool should be built to replace these ad-hoc scripts?
-4.  **Advanced Debugging Workflows**:
+5.  **Advanced Debugging Workflows**:
     *   Describe complex, multi-step workflows (e.g., log injection + UI automation).
     *   Highlight tools that enabled "super-human" or highly efficient debugging (e.g., AI vision for UI verification).
-5.  **Edge Cases & Environment Constraints**:
+6.  **Edge Cases & Environment Constraints**:
     *   Specific versions (SNAPSHOTs, API levels) and how tools handled them.
-6.  **Recommendations for Future Tooling**:
+7.  **Recommendations for Future Tooling**:
     *   Based on the analysis, propose a prioritized list of tools/capabilities that should be added to the core Android Agent platform to improve efficiency and autonomy.
 
 **Note:** The input data may be large. Do not truncate the list of tools; a longer, detailed report is preferred over a summary that misses edge cases.
