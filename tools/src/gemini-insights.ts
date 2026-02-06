@@ -17,7 +17,6 @@ import { parseArgs } from "node:util";
 
 const ANALYSIS_MODEL = "gemini-3-flash-preview";
 const AGGREGATION_MODEL = "gemini-3-pro-preview";
-const DEFAULT_CONVERSATION_LIMIT = 30;
 const CONCURRENCY_LIMIT = 10;
 const MAX_RETRIES_PER_REQUEST = 3;
 const MAX_TOTAL_RETRIES = 10;
@@ -51,10 +50,9 @@ Arguments:
   DIRECTORY         The directory to look up history for.
 
 Options:
-  --limit NUMBER    Number of recent conversations to analyze (default: ${DEFAULT_CONVERSATION_LIMIT}).
-  --all             Analyze all conversations (overrides --limit).
+  --limit NUMBER        Limit analysis to the N most recent conversations (default: all).
   --dump-analysis FILE  Output intermediate analysis data to FILE (Markdown format).
-  -h, --help        Display this help message and exit
+  -h, --help            Display this help message and exit
 
 Environment:
   GEMINI_API_KEY    Required. Your Gemini API key.
@@ -74,7 +72,6 @@ async function main() {
     options: {
       help: { type: "boolean", short: "h" },
       limit: { type: "string" },
-      all: { type: "boolean" },
       "dump-analysis": { type: "string" }
     },
     allowPositionals: true
@@ -133,12 +130,10 @@ async function main() {
     process.exit(0);
   }
 
-  // Filter based on limit/all
-  if (!values.all) {
-    const limit = values.limit
-      ? parseInt(values.limit, 10)
-      : DEFAULT_CONVERSATION_LIMIT;
-    if (isNaN(limit)) {
+  // Filter based on limit
+  if (values.limit) {
+    const limit = parseInt(values.limit, 10);
+    if (isNaN(limit) || limit <= 0) {
       console.error("Invalid limit specified.");
       process.exit(1);
     }
@@ -431,9 +426,15 @@ async function aggregateInsights(
 ): Promise<string> {
   const allTools = insights.flatMap((i) => i.tools || []);
   const inputData = JSON.stringify(allTools, null, 2);
+  const inputSize = Buffer.byteLength(inputData, "utf8");
 
-  // Note: inputData size might differ slightly from totalSummarizedBytes due to JSON structure overhead
-  // But we report the tracked totals for consistency with the progress bar.
+  console.error(`Aggregation Input Size: ${inputSize} bytes`);
+
+  if (inputSize > MAX_AGGREGATION_BYTES) {
+    console.error(
+      `WARNING: Input data (${inputSize} bytes) exceeds the limit of ${MAX_AGGREGATION_BYTES} bytes. Aggregation might fail.`
+    );
+  }
 
   const prompt = `
 <role>
