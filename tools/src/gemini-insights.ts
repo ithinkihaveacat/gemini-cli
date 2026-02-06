@@ -211,7 +211,9 @@ async function analyzeInParallel(
   return new Promise((resolve) => {
     const next = () => {
       if (queue.length === 0 && activePromises.size === 0) {
-        process.stderr.write("\n"); // Clear progress line
+        if (process.stderr.isTTY) {
+          process.stderr.write("\n"); // Clear progress line
+        }
         resolve({ results, totalRawBytes, totalSummarizedBytes });
         return;
       }
@@ -241,11 +243,15 @@ async function analyzeInParallel(
           }
           completed++;
 
-          const msg = `\rAnalyzing chat ${completed}/${total}: ${path.basename(filePath)}... Done. | Raw: ${formatBytes(rawSize)} -> Summary: ${formatBytes(sumSize)} | Total Summary: ${formatBytes(totalSummarizedBytes)}`;
-          // Clear line to avoid artifacts
-          process.stderr.clearLine(0);
-          process.stderr.cursorTo(0);
-          process.stderr.write(msg);
+          const msg = `Analyzing chat ${completed}/${total}: ${path.basename(filePath)}... Done. | Raw: ${formatBytes(rawSize)} -> Summary: ${formatBytes(sumSize)} | Total Summary: ${formatBytes(totalSummarizedBytes)}`;
+
+          if (process.stderr.isTTY) {
+            process.stderr.clearLine(0);
+            process.stderr.cursorTo(0);
+            process.stderr.write(`\r${msg}`);
+          } else {
+            process.stderr.write(`${msg}\n`);
+          }
         })();
 
         activePromises.add(promise);
