@@ -94,26 +94,26 @@ main repository.
 
 ### Common Issues & Solutions
 
-1.  **Module Resolution Errors (`Cannot find module...`)**
-    - **Cause**: The file structure in `packages/core` may have changed (files
-      moved or renamed).
-    - **Fix**: Check the `packages/core/dist` directory to find the new location
-      of the required files and update the import paths in `tools/src/*.ts`.
-    - **Tip**: The `tools/tsconfig.json` maps `@google/gemini-cli-core/*` to
-      `../packages/core/*`. Ensure this mapping remains valid.
+1. **Module Resolution Errors (`Cannot find module...`)**
+   - **Cause**: The file structure in `packages/core` may have changed (files
+     moved or renamed).
+   - **Fix**: Check the `packages/core/dist` directory to find the new location
+     of the required files and update the import paths in `tools/src/*.ts`.
+   - **Tip**: The `tools/tsconfig.json` maps `@google/gemini-cli-core/*` to
+     `../packages/core/*`. Ensure this mapping remains valid.
 
-2.  **Type Errors**
-    - **Cause**: Interfaces or function signatures in `packages/core` (e.g.,
-      `ConversationRecord`, `partListUnionToString`) have changed.
-    - **Fix**: Update the TypeScript code in `tools/src/` to match the new
-      definitions. You can often find the updated types by looking at the source
-      code in `packages/core/src`.
+2. **Type Errors**
+   - **Cause**: Interfaces or function signatures in `packages/core` (e.g.,
+     `ConversationRecord`, `partListUnionToString`) have changed.
+   - **Fix**: Update the TypeScript code in `tools/src/` to match the new
+     definitions. You can often find the updated types by looking at the source
+     code in `packages/core/src`.
 
-3.  **Build Failures**
-    - **Cause**: The local `packages/core` might not be built or is in an
-      inconsistent state.
-    - **Fix**: Run `./tools/build.sh` again. It explicitly triggers a rebuild of
-      `packages/core` before building these tools.
+3. **Build Failures**
+   - **Cause**: The local `packages/core` might not be built or is in an
+     inconsistent state.
+   - **Fix**: Run `./tools/build.sh` again. It explicitly triggers a rebuild of
+     `packages/core` before building these tools.
 
 ### Development Guidelines
 
