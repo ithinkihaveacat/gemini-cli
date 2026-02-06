@@ -430,8 +430,13 @@ async function aggregateInsights(
     totalSummarizedBytes: number;
   }
 ): Promise<string> {
-  const allTools = insights.flatMap((i) => i.tools || []);
-  const inputData = JSON.stringify(allTools, null, 2);
+  const sessionData = insights.map((insight) => ({
+    session: insight.sessionFile
+      ? path.basename(insight.sessionFile)
+      : "unknown",
+    tools: insight.tools || []
+  }));
+  const inputData = JSON.stringify(sessionData, null, 2);
   const inputSize = Buffer.byteLength(inputData, "utf8");
 
   console.error(`Aggregation Input Size: ${inputSize} bytes`);
