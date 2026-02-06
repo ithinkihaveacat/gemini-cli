@@ -328,7 +328,11 @@ async function processLogFile(
   const transcript = session.messages
     .map((m: MessageRecord) => {
       const role = m.type.toUpperCase();
-      const text = partListUnionToString(m.content);
+      let text = partListUnionToString(m.content);
+      if (text.length > 20000) {
+        text =
+          text.slice(0, 10000) + "\n... [TRUNCATED] ...\n" + text.slice(-10000);
+      }
       return `${role}: ${text}`;
     })
     .join("\n\n");
