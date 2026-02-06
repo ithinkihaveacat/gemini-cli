@@ -361,7 +361,7 @@ You are an expert software engineering analyst specializing in evaluating the ef
 </constraints>
 
 <log_excerpt>
-${transcript.slice(0, 60000)}
+${transcript}
 </log_excerpt>
 `;
 
