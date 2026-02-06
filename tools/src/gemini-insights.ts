@@ -267,12 +267,14 @@ You are an expert software engineering analyst specializing in extracting tool u
     - Device interactions (adb, emumanager).
     - Specialized skills (jetpack-inspect, screenshot-compare).
     - *Debugging workflows*: Note simultaneous actions (e.g., background logcat + UI manipulation).
+    - **Script Creation & Modification**: identify when the agent writes a script (bash, python, etc.) to investigate behavior or automate a task.
 3. **Extract** details for each tool:
     - **Category**: Broad classification.
     - **Specific Tool**: The exact command or skill name.
     - **Params**: Key arguments/constraints (e.g., specific API levels, --snapshot).
     - **Context**: Why was it used? Was it part of a debugging loop?
-    - **Human Intervention**: Did a human prompt its use?
+    - **Human Intervention**: Did a human prompt its use or suggest the script creation?
+    - **Hunt & Resolve**: Did the agent "hunt" for a tool or create one to resolve an error or missing capability?
 </instructions>
 
 <constraints>
@@ -348,13 +350,17 @@ Synthesize the provided JSON list of tool usages into a structured Markdown repo
 2.  **Tool Categories**: Group tools logically (5-10 categories). For each:
     *   List specific tools/commands.
     *   Describe *how* and *why* they were used.
-3.  **Debugging & Advanced Workflows**:
+3.  **Custom Tool Creation & Adaptation**:
+    *   Highlight instances where the agent **created** or **modified** scripts to solve a problem (e.g., reproduction scripts, automation).
+    *   Note if these were suggested by the human or self-initiated.
+    *   Describe "hunting" behaviors where the agent tried multiple tools or created a new one to resolve an error.
+4.  **Debugging & Advanced Workflows**:
     *   Highlight complex interactions (e.g., "The agent ran \`adb logcat\` in the background while triggering UI events via \`adb shell input\`").
     *   Note efficient alternatives found (e.g., "Preferred \`adb-screenshot\` over \`screencap\` for speed").
-4.  **Edge Cases & Constraints**:
+5.  **Edge Cases & Constraints**:
     *   Specific versions (SNAPSHOTs, API levels).
     *   Workarounds for environment limitations.
-5.  **Human-AI Collaboration**:
+6.  **Human-AI Collaboration**:
     *   Instances where human guidance unlocked new tool capabilities.
 </instructions>
 
