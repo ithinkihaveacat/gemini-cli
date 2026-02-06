@@ -275,7 +275,7 @@ async function analyzeInParallel(
           }
           completed++;
 
-          const msg = `Analyzed ${completed}/${total}: ${path.basename(filePath)} | Size: ${formatBytes(rawSize)} -> ${formatBytes(filteredSize)} -> ${formatBytes(sumSize)} | Tot: ${formatBytes(totalSummarizedBytes)}`;
+          const msg = `Analyzed ${completed}/${total}: ${path.basename(filePath)} | Last: ${formatBytes(rawSize)} -> ${formatBytes(filteredSize)} -> ${formatBytes(sumSize)} | Total: ${formatBytes(totalSummarizedBytes)}`;
 
           if (process.stderr.isTTY) {
             process.stderr.clearLine(0);
