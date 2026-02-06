@@ -44,6 +44,46 @@ can run them using `node`.
 node tools/dist/gemini-history.js [path/to/project]
 ```
 
+**Example: Running gemini-insights**
+
+```bash
+node tools/dist/gemini-insights.js [path/to/project]
+```
+
+## Tools
+
+### `gemini-history`
+
+Lists user questions from the latest gemini-cli session for a given directory.
+
+### `gemini-insights`
+
+Analyzes Gemini CLI chat logs to extract insights about tool usage, debugging
+workflows, and agent capabilities. It generates a comprehensive Markdown report
+useful for tool developers and product managers.
+
+**Features:**
+
+- **Parallel Analysis:** Processes multiple chat logs concurrently.
+- **Aggregation:** Synthesizes findings into a structured report.
+- **Gap Analysis:** Identifies custom scripts created by the agent, highlighting
+  missing standard tools.
+
+**Usage:**
+
+```bash
+node tools/dist/gemini-insights.js [OPTIONS] DIRECTORY
+```
+
+**Options:**
+
+- `--limit <NUMBER>`: Analyze the N most recent conversations (default: 30).
+- `--all`: Analyze all conversations in the directory.
+
+**Requirements:**
+
+- `GEMINI_API_KEY`: Must be set in the environment.
+
 ## Maintenance and Troubleshooting
 
 Since these tools import directly from the internal structure of

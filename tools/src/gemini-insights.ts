@@ -21,6 +21,7 @@ const DEFAULT_CONVERSATION_LIMIT = 30;
 const CONCURRENCY_LIMIT = 10;
 const MAX_RETRIES_PER_REQUEST = 3;
 const MAX_TOTAL_RETRIES = 10;
+const MAX_AGGREGATION_BYTES = 700000;
 
 interface SessionInsight {
   tools?: Array<{
@@ -148,6 +149,7 @@ async function main() {
 
 // Global retry counter
 let totalRetries = 0;
+let totalBytesCollected = 0;
 
 async function analyzeInParallel(
   filePaths: string[],
@@ -156,10 +158,13 @@ async function analyzeInParallel(
   const results: SessionInsight[] = [];
   const queue = [...filePaths];
   const activePromises: Set<Promise<void>> = new Set();
+  const total = filePaths.length;
+  let completed = 0;
 
   return new Promise((resolve) => {
     const next = () => {
       if (queue.length === 0 && activePromises.size === 0) {
+        process.stderr.write("\n"); // Clear progress line
         resolve(results);
         return;
       }
@@ -170,7 +175,13 @@ async function analyzeInParallel(
           const result = await processLogFileWithRetry(filePath, genAI);
           if (result) {
             results.push(result);
+            const size = Buffer.byteLength(JSON.stringify(result), "utf8");
+            totalBytesCollected += size;
           }
+          completed++;
+          process.stderr.write(
+            `\rAnalyzing chat ${completed}/${total}: ${path.basename(filePath)}... Done. Total bytes: ${totalBytesCollected}`
+          );
         })();
 
         activePromises.add(promise);
@@ -201,7 +212,7 @@ async function processLogFileWithRetry(
         (e as { status: unknown }).status === 429;
 
       if (isQuotaError) {
-        console.error("Quota exceeded (429). Stopping analysis immediately.");
+        console.error("\nQuota exceeded (429). Stopping analysis immediately.");
         process.exit(1); // Fail hard on quota
       }
 
@@ -210,7 +221,7 @@ async function processLogFileWithRetry(
 
       if (totalRetries > MAX_TOTAL_RETRIES) {
         console.error(
-          `Max total retries (${MAX_TOTAL_RETRIES}) exceeded. Skipping ${path.basename(filePath)}.`
+          `\nMax total retries (${MAX_TOTAL_RETRIES}) exceeded. Skipping ${path.basename(filePath)}.`
         );
         return null;
       }
@@ -222,7 +233,7 @@ async function processLogFileWithRetry(
             : String(e);
 
         console.error(
-          `Failed to process ${path.basename(filePath)} after ${attempts} attempts:`,
+          `\nFailed to process ${path.basename(filePath)} after ${attempts} attempts:`,
           errorMessage
         );
         return null;
@@ -337,6 +348,17 @@ async function aggregateInsights(
   genAI: GoogleGenAI
 ): Promise<string> {
   const allTools = insights.flatMap((i) => i.tools || []);
+  const inputData = JSON.stringify(allTools, null, 2);
+  const inputSize = Buffer.byteLength(inputData, "utf8");
+
+  console.error(`Aggregation Input Size: ${inputSize} bytes`);
+
+  if (inputSize > MAX_AGGREGATION_BYTES) {
+    console.error(
+      `ERROR: Input data (${inputSize} bytes) exceeds the limit of ${MAX_AGGREGATION_BYTES} bytes. Aborting to avoid token limits.`
+    );
+    process.exit(1);
+  }
 
   const prompt = `
 <role>
@@ -370,7 +392,7 @@ The goal of this report is to inform the development of a standard toolset for A
 </instructions>
 
 <input_data>
-${JSON.stringify(allTools, null, 2).slice(0, 100000)}
+${inputData}
 </input_data>
 `;
 
