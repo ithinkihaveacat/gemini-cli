@@ -146,7 +146,8 @@ async function main() {
   const {
     results: sessionInsights,
     totalRawBytes,
-    totalSummarizedBytes
+    totalSummarizedBytes,
+    failedCount
   } = await analyzeInParallel(
     chatFiles.map((f) => f.path),
     genAI
@@ -183,6 +184,7 @@ async function main() {
   const finalReport = await aggregateInsights(sessionInsights, genAI, {
     directory: resolvedTargetDir,
     analyzedCount: sessionInsights.length,
+    failedCount,
     totalRawBytes,
     totalSummarizedBytes
   });
@@ -199,6 +201,7 @@ async function analyzeInParallel(
   results: SessionInsight[];
   totalRawBytes: number;
   totalSummarizedBytes: number;
+  failedCount: number;
 }> {
   const results: SessionInsight[] = [];
   const queue = [...filePaths];
@@ -207,6 +210,7 @@ async function analyzeInParallel(
   let completed = 0;
   let totalRawBytes = 0;
   let totalSummarizedBytes = 0;
+  let failedCount = 0;
 
   return new Promise((resolve) => {
     const next = () => {
@@ -214,7 +218,7 @@ async function analyzeInParallel(
         if (process.stderr.isTTY) {
           process.stderr.write("\n"); // Clear progress line
         }
-        resolve({ results, totalRawBytes, totalSummarizedBytes });
+        resolve({ results, totalRawBytes, totalSummarizedBytes, failedCount });
         return;
       }
 
@@ -240,6 +244,8 @@ async function analyzeInParallel(
 
             totalSummarizedBytes += sumSize;
             totalRawBytes += rawSize;
+          } else {
+            failedCount++;
           }
           completed++;
 
@@ -430,6 +436,7 @@ async function aggregateInsights(
   metadata: {
     directory: string;
     analyzedCount: number;
+    failedCount: number;
     totalRawBytes: number;
     totalSummarizedBytes: number;
   }
@@ -459,6 +466,7 @@ You are a Product Manager for an "AI for Android Development" platform.
 <context>
 Target Directory: ${metadata.directory}
 Analyzed Sessions: ${metadata.analyzedCount}
+Failed/Skipped Sessions: ${metadata.failedCount}
 Total Raw Input Log Size: ${formatBytes(metadata.totalRawBytes)}
 Total Summarized Input Size: ${formatBytes(metadata.totalSummarizedBytes)}
 Compression Ratio: ${(metadata.totalRawBytes / metadata.totalSummarizedBytes || 0).toFixed(1)}x
@@ -470,7 +478,7 @@ The goal of this report is to inform the development of a standard toolset for A
 
 **Report Structure:**
 
-1.  **Report Metadata**: Start with a section listing the Target Directory, Analyzed Sessions, Input Data Sizes, and Compression Ratio.
+1.  **Report Metadata**: Start with a section listing the Target Directory, Analyzed Sessions, Failed Sessions (if any), Input Data Sizes, and Compression Ratio.
 2.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
 3.  **Essential Toolset (The "Standard Library")**:
     *   Group tools logically (5-10 categories).
