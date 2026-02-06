@@ -36,6 +36,11 @@ interface SessionInsight {
   }>;
 }
 
+interface ProcessResult {
+  insight: SessionInsight;
+  rawSize: number;
+}
+
 function usage() {
   const scriptName = path.basename(process.argv[1]);
   console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY
@@ -54,6 +59,14 @@ Options:
 Environment:
   GEMINI_API_KEY    Required. Your Gemini API key.
 `);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
 async function main() {
@@ -135,7 +148,11 @@ async function main() {
     console.error(`Analyzing all ${chatFiles.length} logs...`);
   }
 
-  const sessionInsights = await analyzeInParallel(
+  const {
+    results: sessionInsights,
+    totalRawBytes,
+    totalSummarizedBytes
+  } = await analyzeInParallel(
     chatFiles.map((f) => f.path),
     genAI
   );
@@ -167,40 +184,47 @@ async function main() {
     console.error(`Raw output written to: ${values.raw}`);
   }
 
-  console.error("Aggregating insights...");
+  console.error("\nAggregating insights...");
   const finalReport = await aggregateInsights(sessionInsights, genAI, {
     directory: resolvedTargetDir,
-    analyzedCount: sessionInsights.length
+    analyzedCount: sessionInsights.length,
+    totalRawBytes,
+    totalSummarizedBytes
   });
   console.log(finalReport);
 }
 
 // Global retry counter
 let totalRetries = 0;
-let totalBytesCollected = 0;
 
 async function analyzeInParallel(
   filePaths: string[],
   genAI: GoogleGenAI
-): Promise<SessionInsight[]> {
+): Promise<{
+  results: SessionInsight[];
+  totalRawBytes: number;
+  totalSummarizedBytes: number;
+}> {
   const results: SessionInsight[] = [];
   const queue = [...filePaths];
   const activePromises: Set<Promise<void>> = new Set();
   const total = filePaths.length;
   let completed = 0;
+  let totalRawBytes = 0;
+  let totalSummarizedBytes = 0;
 
   return new Promise((resolve) => {
     const next = () => {
       if (queue.length === 0 && activePromises.size === 0) {
         process.stderr.write("\n"); // Clear progress line
-        resolve(results);
+        resolve({ results, totalRawBytes, totalSummarizedBytes });
         return;
       }
 
       while (activePromises.size < CONCURRENCY_LIMIT && queue.length > 0) {
-        if (totalBytesCollected >= MAX_AGGREGATION_BYTES) {
+        if (totalSummarizedBytes >= MAX_AGGREGATION_BYTES) {
           console.error(
-            `\nLimit of ${MAX_AGGREGATION_BYTES} bytes reached during analysis. Stopping early.`
+            `\nLimit of ${formatBytes(MAX_AGGREGATION_BYTES)} reached (collected ${formatBytes(totalSummarizedBytes)}). Stopping analysis early.`
           );
           queue.length = 0; // Clear queue
           break;
@@ -209,15 +233,24 @@ async function analyzeInParallel(
         const filePath = queue.shift()!;
         const promise = (async () => {
           const result = await processLogFileWithRetry(filePath, genAI);
+          let sumSize = 0;
+          let rawSize = 0;
+
           if (result) {
-            results.push(result);
-            const size = Buffer.byteLength(JSON.stringify(result), "utf8");
-            totalBytesCollected += size;
+            results.push(result.insight);
+            sumSize = Buffer.byteLength(JSON.stringify(result.insight), "utf8");
+            rawSize = result.rawSize;
+
+            totalSummarizedBytes += sumSize;
+            totalRawBytes += rawSize;
           }
           completed++;
-          process.stderr.write(
-            `\rAnalyzing chat ${completed}/${total}: ${path.basename(filePath)}... Done. Total bytes: ${totalBytesCollected}`
-          );
+
+          const msg = `\rAnalyzing ${completed}/${total}: ${path.basename(filePath)} | Raw: ${formatBytes(rawSize)} -> Sum: ${formatBytes(sumSize)} | Total Sum: ${formatBytes(totalSummarizedBytes)}`;
+          // Clear line to avoid artifacts
+          process.stderr.clearLine(0);
+          process.stderr.cursorTo(0);
+          process.stderr.write(msg);
         })();
 
         activePromises.add(promise);
@@ -235,7 +268,7 @@ async function analyzeInParallel(
 async function processLogFileWithRetry(
   filePath: string,
   genAI: GoogleGenAI
-): Promise<SessionInsight | null> {
+): Promise<ProcessResult | null> {
   let attempts = 0;
   while (attempts <= MAX_RETRIES_PER_REQUEST) {
     try {
@@ -286,8 +319,9 @@ async function processLogFileWithRetry(
 async function processLogFile(
   filePath: string,
   genAI: GoogleGenAI
-): Promise<SessionInsight | null> {
+): Promise<ProcessResult | null> {
   const content = fs.readFileSync(filePath, "utf8");
+  const rawSize = Buffer.byteLength(content, "utf8");
   const session: ConversationRecord = JSON.parse(content);
 
   const transcript = session.messages
@@ -378,25 +412,28 @@ ${transcript.slice(0, 60000)}
   if (!text) return null;
   const data = JSON.parse(text);
   data.sessionFile = filePath;
-  return data;
+
+  return {
+    insight: data,
+    rawSize: rawSize
+  };
 }
 
 async function aggregateInsights(
   insights: SessionInsight[],
   genAI: GoogleGenAI,
-  metadata: { directory: string; analyzedCount: number }
+  metadata: {
+    directory: string;
+    analyzedCount: number;
+    totalRawBytes: number;
+    totalSummarizedBytes: number;
+  }
 ): Promise<string> {
   const allTools = insights.flatMap((i) => i.tools || []);
   const inputData = JSON.stringify(allTools, null, 2);
-  const inputSize = Buffer.byteLength(inputData, "utf8");
 
-  console.error(`Aggregation Input Size: ${inputSize} bytes`);
-
-  if (inputSize > MAX_AGGREGATION_BYTES) {
-    console.error(
-      `WARNING: Input data (${inputSize} bytes) exceeds the limit of ${MAX_AGGREGATION_BYTES} bytes. Aggregation might fail.`
-    );
-  }
+  // Note: inputData size might differ slightly from totalSummarizedBytes due to JSON structure overhead
+  // But we report the tracked totals for consistency with the progress bar.
 
   const prompt = `
 <role>
@@ -406,7 +443,9 @@ You are a Product Manager for an "AI for Android Development" platform.
 <context>
 Target Directory: ${metadata.directory}
 Analyzed Sessions: ${metadata.analyzedCount}
-Input Data Size: ${inputSize} bytes (Aggregated tool usage data from ${metadata.analyzedCount} sessions)
+Total Raw Input Log Size: ${formatBytes(metadata.totalRawBytes)}
+Total Summarized Input Size: ${formatBytes(metadata.totalSummarizedBytes)}
+Compression Ratio: ${(metadata.totalRawBytes / metadata.totalSummarizedBytes || 0).toFixed(1)}x
 </context>
 
 <instructions>
@@ -415,7 +454,7 @@ The goal of this report is to inform the development of a standard toolset for A
 
 **Report Structure:**
 
-1.  **Report Metadata**: Start with a section listing the Target Directory, Analyzed Sessions, and Input Data Size (in a human-readable format).
+1.  **Report Metadata**: Start with a section listing the Target Directory, Analyzed Sessions, Input Data Sizes, and Compression Ratio.
 2.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
 3.  **Essential Toolset (The "Standard Library")**:
     *   Group tools logically (5-10 categories).
