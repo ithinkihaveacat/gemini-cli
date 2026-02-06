@@ -12,4 +12,6 @@ echo "Building tools..."
 cd "$SCRIPT_DIR"
 npm install
 npm run build
-echo "Build complete. Run with: node tools/dist/gemini-history.js <directory>"
+echo "Build complete. Tools available in tools/dist/:"
+echo "  node tools/dist/gemini-history.js <directory>"
+echo "  node tools/dist/gemini-insights.js <directory>"
