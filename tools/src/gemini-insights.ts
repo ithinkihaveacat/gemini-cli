@@ -38,6 +38,7 @@ interface SessionInsight {
 interface ProcessResult {
   insight: SessionInsight;
   rawSize: number;
+  filteredSize: number;
 }
 
 function usage() {
@@ -150,6 +151,7 @@ async function main() {
   const {
     results: sessionInsights,
     totalRawBytes,
+    totalFilteredBytes,
     totalSummarizedBytes,
     failedCount,
     skippedCount
@@ -194,6 +196,7 @@ async function main() {
     failedCount: failedCount,
     skippedCount: skippedCount,
     totalRawBytes,
+    totalFilteredBytes,
     totalSummarizedBytes
   });
   console.log(finalReport);
@@ -208,6 +211,7 @@ async function analyzeInParallel(
 ): Promise<{
   results: SessionInsight[];
   totalRawBytes: number;
+  totalFilteredBytes: number;
   totalSummarizedBytes: number;
   failedCount: number;
   skippedCount: number;
@@ -218,6 +222,7 @@ async function analyzeInParallel(
   const total = filePaths.length;
   let completed = 0;
   let totalRawBytes = 0;
+  let totalFilteredBytes = 0;
   let totalSummarizedBytes = 0;
   let failedCount = 0;
   let skippedCount = 0;
@@ -231,6 +236,7 @@ async function analyzeInParallel(
         resolve({
           results,
           totalRawBytes,
+          totalFilteredBytes,
           totalSummarizedBytes,
           failedCount,
           skippedCount
@@ -253,20 +259,23 @@ async function analyzeInParallel(
           const result = await processLogFileWithRetry(filePath, genAI);
           let sumSize = 0;
           let rawSize = 0;
+          let filteredSize = 0;
 
           if (result) {
             results.push(result.insight);
             sumSize = Buffer.byteLength(JSON.stringify(result.insight), "utf8");
             rawSize = result.rawSize;
+            filteredSize = result.filteredSize;
 
             totalSummarizedBytes += sumSize;
             totalRawBytes += rawSize;
+            totalFilteredBytes += filteredSize;
           } else {
             failedCount++;
           }
           completed++;
 
-          const msg = `Analyzing chat ${completed}/${total}: ${path.basename(filePath)}... Done. | Raw: ${formatBytes(rawSize)} -> Summary: ${formatBytes(sumSize)} | Total Summary: ${formatBytes(totalSummarizedBytes)}`;
+          const msg = `Analyzed ${completed}/${total}: ${path.basename(filePath)} | Size: ${formatBytes(rawSize)} -> ${formatBytes(filteredSize)} -> ${formatBytes(sumSize)} | Tot: ${formatBytes(totalSummarizedBytes)}`;
 
           if (process.stderr.isTTY) {
             process.stderr.clearLine(0);
@@ -360,6 +369,8 @@ async function processLogFile(
     })
     .join("\n\n");
 
+  const filteredSize = Buffer.byteLength(transcript, "utf8");
+
   if (!transcript.trim()) return null;
 
   // Refined prompt based on gemini-text-analysis.md strategies
@@ -443,7 +454,8 @@ ${transcript}
 
   return {
     insight: data,
-    rawSize: rawSize
+    rawSize: rawSize,
+    filteredSize: filteredSize
   };
 }
 
@@ -458,6 +470,7 @@ async function aggregateInsights(
     failedCount: number;
     skippedCount: number;
     totalRawBytes: number;
+    totalFilteredBytes: number;
     totalSummarizedBytes: number;
   }
 ): Promise<string> {
@@ -494,8 +507,9 @@ Input Statistics:
 
 Data Volume:
 - Total Raw Input Log Size: ${formatBytes(metadata.totalRawBytes)}
-- Total Summarized Input Size: ${formatBytes(metadata.totalSummarizedBytes)}
-- Compression Ratio: ${(metadata.totalRawBytes / metadata.totalSummarizedBytes || 0).toFixed(1)}x
+- Total Filtered Input Size (for Analysis): ${formatBytes(metadata.totalFilteredBytes)}
+- Total Summarized Input Size (for Aggregation): ${formatBytes(metadata.totalSummarizedBytes)}
+- Compression Ratio (Raw -> Summary): ${(metadata.totalRawBytes / metadata.totalSummarizedBytes || 0).toFixed(1)}x
 </context>
 
 <instructions>
