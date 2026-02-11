@@ -112,9 +112,10 @@ main repository.
 
 3. **Build Failures**
    - **Cause**: The local `packages/core` might not be built or is in an
-     inconsistent state.
+     inconsistent state (e.g., missing dependencies).
    - **Fix**: Run `./tools/build.sh` again. It explicitly triggers a rebuild of
-     `packages/core` before building these tools.
+     `packages/core` and automatically attempts to install missing dependencies
+     if the build fails.
 
 ### Development Guidelines
 
