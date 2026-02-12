@@ -44,10 +44,10 @@ can run them using `node`.
 node tools/dist/gemini-history.js [path/to/project]
 ```
 
-**Example: Running gemini-insights**
+**Example: Running gemini-insights-tool-use**
 
 ```bash
-node tools/dist/gemini-insights.js [path/to/project]
+node tools/dist/gemini-insights-tool-use.js [path/to/project]
 ```
 
 ## Tools
@@ -56,7 +56,7 @@ node tools/dist/gemini-insights.js [path/to/project]
 
 Lists user questions from the latest gemini-cli session for a given directory.
 
-### `gemini-insights`
+### `gemini-insights-tool-use`
 
 Analyzes Gemini CLI chat logs to extract insights about tool usage, debugging
 workflows, and agent capabilities. It generates a comprehensive Markdown report
@@ -72,7 +72,7 @@ useful for tool developers and product managers.
 **Usage:**
 
 ```bash
-node tools/dist/gemini-insights.js [OPTIONS] DIRECTORY
+node tools/dist/gemini-insights-tool-use.js [OPTIONS] DIRECTORY
 ```
 
 **Options:**
