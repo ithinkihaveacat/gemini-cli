@@ -43,13 +43,14 @@ interface FrictionInsight {
 
 function usage() {
   const scriptName = path.basename(process.argv[1]);
-  console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY
+  console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY OUTPUT_FILE
 
 Extracts "friction" insights from Gemini CLI logs for a given directory.
 Focuses on identifying tasks where the agent had to retry, hunt for information, or required user intervention.
 
 Arguments:
   DIRECTORY         The directory to look up history for.
+  OUTPUT_FILE       The path to write the Markdown report to.
 
 Options:
   --limit NUMBER        Limit analysis to the N most recent conversations (default: all).
@@ -76,12 +77,13 @@ async function main() {
     process.exit(0);
   }
 
-  if (positionals.length === 0) {
+  if (positionals.length < 2) {
     usage();
     process.exit(1);
   }
 
   const targetDirArg = positionals[0];
+  const outputFile = positionals[1];
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -213,7 +215,9 @@ async function main() {
     totalFilteredBytes,
     totalSummarizedBytes
   });
-  console.log(finalReport);
+
+  fs.writeFileSync(outputFile, finalReport);
+  console.log(`Report written to: ${outputFile}`);
 }
 
 async function processLogFile(
@@ -362,6 +366,8 @@ async function aggregateInsights(
     );
   }
 
+  const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+
   const prompt = `
 <role>
 You are a Product Manager and UX Researcher for an "AI for Android Development" platform.
@@ -369,6 +375,7 @@ You are a Product Manager and UX Researcher for an "AI for Android Development" 
 
 <context>
 Target Directory: ${metadata.directory}
+Analysis Date: ${now}
 Input Statistics:
 - Total Logs Found: ${metadata.totalFound}
 - Logs Selected for Analysis: ${metadata.selectedCount}
@@ -409,7 +416,9 @@ The goal is to identify where the agent is failing, frustrating users, or wastin
         *   **Prompt Improvements**: (e.g., "Instruct the agent to ask for help sooner instead of looping").
         *   **UX Changes**: (e.g., "Better error messages").
 
-**Note:** The input contains raw "friction" events. Synthesize them into patterns. Do not just list every single event.
+**Note:**
+- The input contains raw "friction" events. Synthesize them into patterns. Do not just list every single event.
+- Use the provided Analysis Date in the report header.
 </instructions>
 
 <input_data>

@@ -38,12 +38,13 @@ interface SessionInsight {
 
 function usage() {
   const scriptName = path.basename(process.argv[1]);
-  console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY
+  console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY OUTPUT_FILE
 
 Extracts tool usage insights from Gemini CLI logs for a given directory.
 
 Arguments:
   DIRECTORY         The directory to look up history for.
+  OUTPUT_FILE       The path to write the Markdown report to.
 
 Options:
   --limit NUMBER        Limit analysis to the N most recent conversations (default: all).
@@ -70,12 +71,13 @@ async function main() {
     process.exit(0);
   }
 
-  if (positionals.length === 0) {
+  if (positionals.length < 2) {
     usage();
     process.exit(1);
   }
 
   const targetDirArg = positionals[0];
+  const outputFile = positionals[1];
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -207,7 +209,9 @@ async function main() {
     totalFilteredBytes,
     totalSummarizedBytes
   });
-  console.log(finalReport);
+
+  fs.writeFileSync(outputFile, finalReport);
+  console.log(`Report written to: ${outputFile}`);
 }
 
 async function processLogFile(
@@ -337,6 +341,8 @@ async function aggregateInsights(
     );
   }
 
+  const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+
   const prompt = `
 <role>
 You are a Product Manager for an "AI for Android Development" platform.
@@ -344,6 +350,7 @@ You are a Product Manager for an "AI for Android Development" platform.
 
 <context>
 Target Directory: ${metadata.directory}
+Analysis Date: ${now}
 Input Statistics:
 - Total Logs Found: ${metadata.totalFound}
 - Logs Selected for Analysis: ${metadata.selectedCount}
@@ -364,7 +371,7 @@ The goal of this report is to inform the development of a standard toolset for A
 
 **Report Structure:**
 
-1.  **Report Metadata**: Start with a section listing the Target Directory and a summary of the Input Statistics (Total, Selected, Analyzed, Failed, Skipped).
+1.  **Report Metadata**: Start with a section listing the Target Directory, Analysis Date, and a summary of the Input Statistics.
 2.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
 3.  **Essential Toolset (The "Standard Library")**:
     *   Group tools logically (5-10 categories).

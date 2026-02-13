@@ -41,13 +41,13 @@ can run them using `node`.
 **Example: Running gemini-history**
 
 ```bash
-node tools/dist/gemini-history.js [path/to/project]
+node tools/dist/gemini-history.js DIRECTORY
 ```
 
 **Example: Running gemini-insights-tool-use**
 
 ```bash
-node tools/dist/gemini-insights-tool-use.js [path/to/project]
+node tools/dist/gemini-insights-tool-use.js DIRECTORY OUTPUT_FILE
 ```
 
 ## Tools
@@ -55,6 +55,12 @@ node tools/dist/gemini-insights-tool-use.js [path/to/project]
 ### `gemini-history`
 
 Lists user questions from the latest gemini-cli session for a given directory.
+
+**Usage:**
+
+```bash
+node tools/dist/gemini-history.js [OPTIONS] DIRECTORY
+```
 
 ### `gemini-insights-tool-use`
 
@@ -72,7 +78,7 @@ useful for tool developers and product managers.
 **Usage:**
 
 ```bash
-node tools/dist/gemini-insights-tool-use.js [OPTIONS] DIRECTORY
+node tools/dist/gemini-insights-tool-use.js [OPTIONS] DIRECTORY OUTPUT_FILE
 ```
 
 **Options:**
@@ -82,6 +88,36 @@ node tools/dist/gemini-insights-tool-use.js [OPTIONS] DIRECTORY
 
 - `--dump-analysis <FILE>`: Save the intermediate analysis data (JSON chunks per
   session) to a Markdown file.
+
+**Requirements:**
+
+- `GEMINI_API_KEY`: Must be set in the environment.
+
+### `gemini-insights-friction`
+
+Analyzes Gemini CLI chat logs to identify "friction points" where the agent
+struggled to complete tasks. This includes identifying loops (autonomous
+retries), user interventions, and inefficient "hunting" behaviors.
+
+**Features:**
+
+- **Friction Detection:** Identifies loops, repetitive errors, and user
+  corrections.
+- **Hunting Analysis:** Detects inefficient search patterns (e.g., blind
+  `grep`).
+- **Severity Scoring:** Classifies incidents by disruptiveness
+  (Low/Medium/High).
+
+**Usage:**
+
+```bash
+node tools/dist/gemini-insights-friction.js [OPTIONS] DIRECTORY OUTPUT_FILE
+```
+
+**Options:**
+
+- `--limit <NUMBER>`: Limit analysis to the N most recent conversations.
+- `--dump-analysis <FILE>`: Save intermediate JSON analysis to a file.
 
 **Requirements:**
 
