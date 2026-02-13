@@ -387,6 +387,7 @@ Data Volume:
 - Total Raw Input Log Size: ${formatBytes(metadata.totalRawBytes)}
 - Total Filtered Input Size (for Analysis): ${formatBytes(metadata.totalFilteredBytes)}
 - Total Summarized Input Size (for Aggregation): ${formatBytes(metadata.totalSummarizedBytes)}
+- Compression Ratio (Raw -> Summary): ${(metadata.totalRawBytes / metadata.totalSummarizedBytes || 0).toFixed(1)}x
 </context>
 
 <instructions>
@@ -399,6 +400,7 @@ The goal is to identify where the agent is failing, frustrating users, or wastin
     *   Title: "# Gemini CLI Friction & Failure Report"
     *   Date: "Date: ${now}" (on a new line)
     *   Target Directory: "Target Directory: ${metadata.directory}" (on a new line)
+    *   Stats: "Analyzed ${metadata.analyzedCount}/${metadata.selectedCount} sessions (${formatBytes(metadata.totalRawBytes)} raw data)"
 2.  **Executive Summary**: High-level overview of the friction points. Is the agent generally reliable, or does it struggle with specific categories of tasks?
 3.  **Top Friction Categories**:
     *   Group the friction points into logical categories (e.g., "File Navigation", "Build Errors", "Code Editing", "Context Gathering").
