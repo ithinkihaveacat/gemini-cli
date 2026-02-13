@@ -397,8 +397,8 @@ The goal is to identify where the agent is failing, frustrating users, or wastin
 
 1.  **Header**:
     *   Title: "# Gemini CLI Friction & Failure Report"
-    *   Date: "${now}" (on a new line)
-    *   Target Directory: ${metadata.directory}
+    *   Date: "Date: ${now}\\" (on a new line)
+    *   Target Directory: "Target Directory: ${metadata.directory}"
 2.  **Executive Summary**: High-level overview of the friction points. Is the agent generally reliable, or does it struggle with specific categories of tasks?
 3.  **Top Friction Categories**:
     *   Group the friction points into logical categories (e.g., "File Navigation", "Build Errors", "Code Editing", "Context Gathering").
