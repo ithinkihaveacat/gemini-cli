@@ -395,8 +395,12 @@ The goal is to identify where the agent is failing, frustrating users, or wastin
 
 **Report Structure:**
 
-1.  **Executive Summary**: High-level overview of the friction points. Is the agent generally reliable, or does it struggle with specific categories of tasks?
-2.  **Top Friction Categories**:
+1.  **Header**:
+    *   Title: "# Gemini CLI Friction & Failure Report"
+    *   Date: "${now}" (on a new line)
+    *   Target Directory: ${metadata.directory}
+2.  **Executive Summary**: High-level overview of the friction points. Is the agent generally reliable, or does it struggle with specific categories of tasks?
+3.  **Top Friction Categories**:
     *   Group the friction points into logical categories (e.g., "File Navigation", "Build Errors", "Code Editing", "Context Gathering").
     *   For each category, describe the common failure modes.
     *   *Example*: "The agent frequently struggles to find source files for Android classes, often resorting to brute-force \`grep\`."

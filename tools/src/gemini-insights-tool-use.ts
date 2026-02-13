@@ -371,7 +371,10 @@ The goal of this report is to inform the development of a standard toolset for A
 
 **Report Structure:**
 
-1.  **Report Metadata**: Start with a section listing the Target Directory, Analysis Date, and a summary of the Input Statistics.
+1.  **Header**:
+    *   Title: "# Gemini CLI Tool Usage Report"
+    *   Date: "${now}" (on a new line)
+    *   Target Directory: ${metadata.directory}
 2.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
 3.  **Essential Toolset (The "Standard Library")**:
     *   Group tools logically (5-10 categories).
