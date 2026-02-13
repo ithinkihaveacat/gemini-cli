@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/gemini-history.js",
-    "start:struggles": "node dist/gemini-insights-struggles.js",
+    "start:friction": "node dist/gemini-insights-friction.js",
     "start:tool-use": "node dist/gemini-insights-tool-use.js"
   },
   "dependencies": {

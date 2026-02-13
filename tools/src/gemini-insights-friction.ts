@@ -23,11 +23,11 @@ const AGGREGATION_MODEL = "gemini-3-pro-preview";
 const MAX_TOTAL_RETRIES = 10;
 const MAX_RETRIES_PER_REQUEST = 3;
 
-interface StruggleInsight {
+interface FrictionInsight {
   sessionFile?: string;
-  struggles?: Array<{
+  friction_points?: Array<{
     task_description: string;
-    struggle_type:
+    friction_type:
       | "autonomous_retry"
       | "user_intervention"
       | "hunting"
@@ -45,7 +45,7 @@ function usage() {
   const scriptName = path.basename(process.argv[1]);
   console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY
 
-Extracts "struggle" insights from Gemini CLI logs for a given directory.
+Extracts "friction" insights from Gemini CLI logs for a given directory.
 Focuses on identifying tasks where the agent had to retry, hunt for information, or required user intervention.
 
 Arguments:
@@ -146,7 +146,7 @@ async function main() {
 
   const processLogFileWrapper = async (
     filePath: string
-  ): Promise<BaseProcessResult<StruggleInsight> | null> => {
+  ): Promise<BaseProcessResult<FrictionInsight> | null> => {
     return runWithRetry(() => processLogFile(filePath, genAI), {
       maxRetries: MAX_RETRIES_PER_REQUEST,
       onRetry: () => {
@@ -163,7 +163,7 @@ async function main() {
   };
 
   const {
-    results: sessionInsights,
+    results: frictionInsights,
     totalRawBytes,
     totalFilteredBytes,
     totalSummarizedBytes,
@@ -174,26 +174,26 @@ async function main() {
     processLogFileWrapper
   );
 
-  if (sessionInsights.length === 0) {
+  if (frictionInsights.length === 0) {
     console.log("No insights extracted.");
     process.exit(0);
   }
 
   if (values["dump-analysis"]) {
-    let rawOutput = "# Raw Struggle Analysis Output\n\n";
-    for (const insight of sessionInsights) {
+    let rawOutput = "# Raw Friction Analysis Output\n\n";
+    for (const insight of frictionInsights) {
       if (insight.sessionFile) {
         rawOutput += `## Session: ${path.basename(insight.sessionFile)}\n\n`;
       } else {
         rawOutput += `## Session: Unknown\n\n`;
       }
 
-      if (insight.struggles && insight.struggles.length > 0) {
+      if (insight.friction_points && insight.friction_points.length > 0) {
         rawOutput += "```json\n";
-        rawOutput += JSON.stringify(insight.struggles, null, 2);
+        rawOutput += JSON.stringify(insight.friction_points, null, 2);
         rawOutput += "\n```\n\n";
       } else {
-        rawOutput += "_No struggles detected._\n\n";
+        rawOutput += "_No friction detected._\n\n";
       }
       rawOutput += "---\n\n";
     }
@@ -202,11 +202,11 @@ async function main() {
   }
 
   console.error("\nAggregating insights...");
-  const finalReport = await aggregateInsights(sessionInsights, genAI, {
+  const finalReport = await aggregateInsights(frictionInsights, genAI, {
     directory: resolvedTargetDir,
     totalFound: totalFoundCount,
     selectedCount: selectedCount,
-    analyzedCount: sessionInsights.length,
+    analyzedCount: frictionInsights.length,
     failedCount: failedCount,
     skippedCount: skippedCount,
     totalRawBytes,
@@ -219,7 +219,7 @@ async function main() {
 async function processLogFile(
   filePath: string,
   genAI: GoogleGenAI
-): Promise<BaseProcessResult<StruggleInsight> | null> {
+): Promise<BaseProcessResult<FrictionInsight> | null> {
   const resultData = readAndFormatChatLog(filePath);
   if (!resultData) return null;
 
@@ -232,16 +232,16 @@ You are an expert software engineering analyst specializing in evaluating AI age
 </role>
 
 <instructions>
-1. **Analyze** the provided log to identify moments where the agent "struggled".
-2. **Definition of Struggle**:
+1. **Analyze** the provided log to identify moments of "friction" where the agent struggled.
+2. **Definition of Friction**:
     - **Autonomous Retries**: The agent tries essentially the same action multiple times (loops) or tries slightly different variations without success.
     - **User Intervention**: The user has to step in to correct the agent ("no, stop", "try this instead"), provide a hint, or interrupt a failing process.
     - **Hunting**: The agent blindly searches for information (e.g., repeatedly using 'find' or 'grep' with different patterns) to locate a file or code snippet (especially source code).
     - **Tool Failure**: The agent attempts to use a tool that fails or doesn't exist, and struggles to recover.
     - **Repetition**: The agent repeats the same output or mistake.
-3. **Extract** details for each struggle:
+3. **Extract** details for each friction point:
     - **Task Description**: What was the high-level goal?
-    - **Type**: Classify the struggle (autonomous_retry, user_intervention, hunting, repetition, tool_failure, other).
+    - **Type**: Classify the friction (autonomous_retry, user_intervention, hunting, repetition, tool_failure, other).
     - **Severity**: How disruptive was it? (Low: minor delay; Medium: required several turns; High: user had to intervene or agent gave up).
     - **Resolution**: Did it eventually succeed?
     - **Details**: Specific context (e.g., "Tried to grep for 'MainActivity' 3 times", "User said 'use ripgrep'").
@@ -249,7 +249,7 @@ You are an expert software engineering analyst specializing in evaluating AI age
 
 <constraints>
 - Output must be valid JSON matching the provided schema.
-- Only report actual struggles. If the interaction was smooth, return an empty list.
+- Only report actual friction points. If the interaction was smooth, return an empty list.
 </constraints>
 
 <log_excerpt>
@@ -265,13 +265,13 @@ ${transcript}
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          struggles: {
+          friction_points: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
               properties: {
                 task_description: { type: Type.STRING },
-                struggle_type: {
+                friction_type: {
                   type: Type.STRING,
                   enum: [
                     "autonomous_retry",
@@ -295,7 +295,7 @@ ${transcript}
               },
               required: [
                 "task_description",
-                "struggle_type",
+                "friction_type",
                 "severity",
                 "resolution",
                 "details"
@@ -328,7 +328,7 @@ ${transcript}
 }
 
 async function aggregateInsights(
-  insights: StruggleInsight[],
+  insights: FrictionInsight[],
   genAI: GoogleGenAI,
   metadata: {
     directory: string;
@@ -347,9 +347,9 @@ async function aggregateInsights(
       session: insight.sessionFile
         ? path.basename(insight.sessionFile)
         : "unknown",
-      struggles: insight.struggles || []
+      friction_points: insight.friction_points || []
     }))
-    .filter((s) => s.struggles.length > 0); // Only include sessions with struggles
+    .filter((s) => s.friction_points.length > 0); // Only include sessions with friction
 
   const inputData = JSON.stringify(sessionData, null, 2);
   const inputSize = Buffer.byteLength(inputData, "utf8");
@@ -383,14 +383,14 @@ Data Volume:
 </context>
 
 <instructions>
-Synthesize the provided JSON list of "Agent Struggles" into a comprehensive "Friction & Failure Report".
+Synthesize the provided JSON list of "Agent Friction Points" into a comprehensive "Friction & Failure Report".
 The goal is to identify where the agent is failing, frustrating users, or wasting time, to inform product improvements.
 
 **Report Structure:**
 
 1.  **Executive Summary**: High-level overview of the friction points. Is the agent generally reliable, or does it struggle with specific categories of tasks?
-2.  **Top Struggle Categories**:
-    *   Group the struggles into logical categories (e.g., "File Navigation", "Build Errors", "Code Editing", "Context Gathering").
+2.  **Top Friction Categories**:
+    *   Group the friction points into logical categories (e.g., "File Navigation", "Build Errors", "Code Editing", "Context Gathering").
     *   For each category, describe the common failure modes.
     *   *Example*: "The agent frequently struggles to find source files for Android classes, often resorting to brute-force \`grep\`."
 3.  **User Intervention Patterns**:
@@ -409,7 +409,7 @@ The goal is to identify where the agent is failing, frustrating users, or wastin
         *   **Prompt Improvements**: (e.g., "Instruct the agent to ask for help sooner instead of looping").
         *   **UX Changes**: (e.g., "Better error messages").
 
-**Note:** The input contains raw "struggle" events. Synthesize them into patterns. Do not just list every single event.
+**Note:** The input contains raw "friction" events. Synthesize them into patterns. Do not just list every single event.
 </instructions>
 
 <input_data>
