@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/gemini-history.js"
+    "start": "node dist/gemini-history.js",
+    "start:struggles": "node dist/gemini-insights-struggles.js",
+    "start:tool-use": "node dist/gemini-insights-tool-use.js"
   },
   "dependencies": {
     "@google/gemini-cli-core": "file:../packages/core",
