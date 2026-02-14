@@ -355,6 +355,30 @@ async function aggregateInsights(
     }))
     .filter((s) => s.friction_points.length > 0); // Only include sessions with friction
 
+  // Calculate friction stats
+  const frictionCounts: Record<string, number> = {
+    autonomous_retry: 0,
+    user_intervention: 0,
+    hunting: 0,
+    repetition: 0,
+    tool_failure: 0,
+    other: 0
+  };
+  let totalFrictionPoints = 0;
+
+  for (const insight of insights) {
+    if (insight.friction_points) {
+      for (const point of insight.friction_points) {
+        if (point.friction_type && point.friction_type in frictionCounts) {
+          frictionCounts[point.friction_type]++;
+        } else {
+          frictionCounts["other"]++;
+        }
+        totalFrictionPoints++;
+      }
+    }
+  }
+
   const inputData = JSON.stringify(sessionData, null, 2);
   const inputSize = Buffer.byteLength(inputData, "utf8");
 
@@ -383,6 +407,15 @@ Input Statistics:
 - Failed Analysis: ${metadata.failedCount}
 - Skipped (Size Limit Reached): ${metadata.skippedCount}
 
+Friction Statistics:
+- Total Friction Points: ${totalFrictionPoints}
+- Autonomous Retries: ${frictionCounts.autonomous_retry}
+- User Interventions: ${frictionCounts.user_intervention}
+- Hunting: ${frictionCounts.hunting}
+- Repetition: ${frictionCounts.repetition}
+- Tool Failures: ${frictionCounts.tool_failure}
+- Other: ${frictionCounts.other}
+
 Data Volume:
 - Total Raw Input Log Size: ${formatBytes(metadata.totalRawBytes)}
 - Total Filtered Input Size (for Analysis): ${formatBytes(metadata.totalFilteredBytes)}
@@ -402,21 +435,24 @@ The goal is to identify where the agent is failing, frustrating users, or wastin
     *   Target Directory: "Target Directory: ${metadata.directory}" (on a new line)
     *   Stats: "Analyzed ${metadata.analyzedCount}/${metadata.selectedCount} sessions (${formatBytes(metadata.totalRawBytes)} raw data)"
 2.  **Executive Summary**: High-level overview of the friction points. Is the agent generally reliable, or does it struggle with specific categories of tasks?
-3.  **Top Friction Categories**:
+3.  **Friction Statistics**:
+    *   Present the "Friction Statistics" provided in the context (Total Points and breakdown by type) in a clear format (e.g., a small table or list).
+    *   Briefly comment on the most frequent friction type.
+4.  **Top Friction Categories**:
     *   Group the friction points into logical categories (e.g., "File Navigation", "Build Errors", "Code Editing", "Context Gathering").
     *   For each category, describe the common failure modes.
     *   *Example*: "The agent frequently struggles to find source files for Android classes, often resorting to brute-force \`grep\`."
-3.  **User Intervention Patterns**:
+5.  **User Intervention Patterns**:
     *   When do users typically intervene?
     *   What are the common corrections users have to make?
     *   *Insight*: Are users guiding the agent because it's lost, or because it's about to make a mistake?
-4.  **"Hunting" Behaviors**:
+6.  **"Hunting" Behaviors**:
     *   Analyze instances where the agent blindly searches for information.
     *   What specific information is it usually looking for? (e.g., specific class definitions, resource IDs).
     *   *Recommendation*: What new tool or capability would solve this? (e.g., "A dedicated \`find_class\` tool").
-5.  **Severity Analysis**:
+7.  **Severity Analysis**:
     *   Highlight the "High Severity" incidents where the agent completely failed or required major user intervention.
-6.  **Recommendations for Improvement**:
+8.  **Recommendations for Improvement**:
     *   Propose concrete actions:
         *   **New Tools**: (e.g., "Add a tool to resolve Android resource IDs").
         *   **Prompt Improvements**: (e.g., "Instruct the agent to ask for help sooner instead of looping").
