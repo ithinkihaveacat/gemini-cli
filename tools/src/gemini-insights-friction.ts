@@ -34,6 +34,14 @@ interface FrictionInsight {
       | "repetition"
       | "tool_failure"
       | "other";
+    root_cause:
+      | "environment_issue"
+      | "model_hallucination"
+      | "tool_limitation"
+      | "user_ambiguity"
+      | "complex_task"
+      | "unknown";
+    user_sentiment: "frustrated" | "helpful" | "neutral" | "absent";
     severity: "low" | "medium" | "high";
     resolution: "success" | "failure" | "partial";
     details: string;
@@ -229,31 +237,28 @@ async function processLogFile(
 
   const { content: transcript, rawSize, filteredSize } = resultData;
 
-  // Refined prompt based on gemini-text-analysis.md strategies
   const prompt = `
 <role>
 You are an expert software engineering analyst specializing in evaluating AI agent performance and identifying friction points.
 </role>
 
 <instructions>
-1. **Analyze** the provided log to identify moments of "friction" where the agent struggled.
-2. **Definition of Friction**:
-    - **Autonomous Retries**: The agent tries essentially the same action multiple times (loops) or tries slightly different variations without success.
-    - **User Intervention**: The user has to step in to correct the agent ("no, stop", "try this instead"), provide a hint, or interrupt a failing process.
-    - **Hunting**: The agent blindly searches for information (e.g., repeatedly using 'find' or 'grep' with different patterns) to locate a file or code snippet (especially source code).
-    - **Tool Failure**: The agent attempts to use a tool that fails or doesn't exist, and struggles to recover.
-    - **Repetition**: The agent repeats the same output or mistake.
-3. **Extract** details for each friction point:
-    - **Task Description**: What was the high-level goal?
-    - **Type**: Classify the friction (autonomous_retry, user_intervention, hunting, repetition, tool_failure, other).
-    - **Severity**: How disruptive was it? (Low: minor delay; Medium: required several turns; High: user had to intervene or agent gave up).
-    - **Resolution**: Did it eventually succeed?
-    - **Details**: Specific context (e.g., "Tried to grep for 'MainActivity' 3 times", "User said 'use ripgrep'").
+1. **Plan**: Read the entire log to understand the user's ultimate goal and the agent's strategy.
+2. **Execute**: Identify specific moments where the interaction broke down or slowed down.
+    - **Friction Definition**:
+        - **Autonomous Retries**: Loops or repeated variations without success.
+        - **User Intervention**: User corrects, interrupts, or guides the agent.
+        - **Hunting**: Blind searching (grep/find) for information.
+        - **Tool Failure**: Tools crashing or returning useless data.
+        - **Repetition**: Repeating the same mistake.
+3. **Analyze Root Cause**: For each friction point, determine *why* it happened (e.g., did the tool crash? did the model hallucinate a command?).
+4. **Assess User Sentiment**: Look at the user's language. Are they frustrated ("stop!", "no"), helpful ("try this"), or neutral?
+5. **Validate**: Ensure the severity matches the disruption. High severity means the user *had* to intervene or the task failed.
 </instructions>
 
 <constraints>
 - Output must be valid JSON matching the provided schema.
-- Only report actual friction points. If the interaction was smooth, return an empty list.
+- Be specific in 'details'. Don't just say "it failed", say "it failed because ANDROID_SERIAL was missing".
 </constraints>
 
 <log_excerpt>
@@ -286,6 +291,21 @@ ${transcript}
                     "other"
                   ]
                 },
+                root_cause: {
+                  type: Type.STRING,
+                  enum: [
+                    "environment_issue",
+                    "model_hallucination",
+                    "tool_limitation",
+                    "user_ambiguity",
+                    "complex_task",
+                    "unknown"
+                  ]
+                },
+                user_sentiment: {
+                  type: Type.STRING,
+                  enum: ["frustrated", "helpful", "neutral", "absent"]
+                },
                 severity: {
                   type: Type.STRING,
                   enum: ["low", "medium", "high"]
@@ -300,6 +320,8 @@ ${transcript}
               required: [
                 "task_description",
                 "friction_type",
+                "root_cause",
+                "user_sentiment",
                 "severity",
                 "resolution",
                 "details"
@@ -364,6 +386,14 @@ async function aggregateInsights(
     tool_failure: 0,
     other: 0
   };
+  const rootCauseCounts: Record<string, number> = {
+    environment_issue: 0,
+    model_hallucination: 0,
+    tool_limitation: 0,
+    user_ambiguity: 0,
+    complex_task: 0,
+    unknown: 0
+  };
   let totalFrictionPoints = 0;
 
   for (const insight of insights) {
@@ -373,6 +403,12 @@ async function aggregateInsights(
           frictionCounts[point.friction_type]++;
         } else {
           frictionCounts["other"]++;
+        }
+
+        if (point.root_cause && point.root_cause in rootCauseCounts) {
+          rootCauseCounts[point.root_cause]++;
+        } else {
+          rootCauseCounts["unknown"]++;
         }
         totalFrictionPoints++;
       }
@@ -414,7 +450,13 @@ Friction Statistics:
 - Hunting: ${frictionCounts.hunting}
 - Repetition: ${frictionCounts.repetition}
 - Tool Failures: ${frictionCounts.tool_failure}
-- Other: ${frictionCounts.other}
+
+Root Cause Statistics:
+- Environment Issues: ${rootCauseCounts.environment_issue}
+- Model Hallucinations: ${rootCauseCounts.model_hallucination}
+- Tool Limitations: ${rootCauseCounts.tool_limitation}
+- User Ambiguity: ${rootCauseCounts.user_ambiguity}
+- Complex Tasks: ${rootCauseCounts.complex_task}
 
 Data Volume:
 - Total Raw Input Log Size: ${formatBytes(metadata.totalRawBytes)}
@@ -424,43 +466,39 @@ Data Volume:
 </context>
 
 <instructions>
-Synthesize the provided JSON list of "Agent Friction Points" into a comprehensive "Friction & Failure Report".
-The goal is to identify where the agent is failing, frustrating users, or wasting time, to inform product improvements.
+Synthesize the provided JSON list of "Agent Friction Points" into a comprehensive "Friction & Failure Post-Mortem".
+The goal is to identify systemic patterns in *why* the agent fails and *how* users react.
 
 **Report Structure:**
 
 1.  **Header**:
-    *   Title: "# Gemini CLI Friction & Failure Report"
-    *   Date: "Date: ${now}" (on a new line)
-    *   Target Directory: "Target Directory: ${metadata.directory}" (on a new line)
-    *   Stats: "Analyzed ${metadata.analyzedCount}/${metadata.selectedCount} sessions (${formatBytes(metadata.totalRawBytes)} raw data)"
-2.  **Executive Summary**: High-level overview of the friction points. Is the agent generally reliable, or does it struggle with specific categories of tasks?
-3.  **Friction Statistics**:
-    *   Present the "Friction Statistics" provided in the context (Total Points and breakdown by type) in a clear format (e.g., a small table or list).
-    *   Briefly comment on the most frequent friction type.
-4.  **Top Friction Categories**:
-    *   Group the friction points into logical categories (e.g., "File Navigation", "Build Errors", "Code Editing", "Context Gathering").
-    *   For each category, describe the common failure modes.
-    *   *Example*: "The agent frequently struggles to find source files for Android classes, often resorting to brute-force \`grep\`."
-5.  **User Intervention Patterns**:
-    *   When do users typically intervene?
-    *   What are the common corrections users have to make?
-    *   *Insight*: Are users guiding the agent because it's lost, or because it's about to make a mistake?
-6.  **"Hunting" Behaviors**:
-    *   Analyze instances where the agent blindly searches for information.
-    *   What specific information is it usually looking for? (e.g., specific class definitions, resource IDs).
-    *   *Recommendation*: What new tool or capability would solve this? (e.g., "A dedicated \`find_class\` tool").
-7.  **Severity Analysis**:
-    *   Highlight the "High Severity" incidents where the agent completely failed or required major user intervention.
-8.  **Recommendations for Improvement**:
-    *   Propose concrete actions:
-        *   **New Tools**: (e.g., "Add a tool to resolve Android resource IDs").
-        *   **Prompt Improvements**: (e.g., "Instruct the agent to ask for help sooner instead of looping").
-        *   **UX Changes**: (e.g., "Better error messages").
+    *   Title: "# Gemini CLI Friction Post-Mortem"
+    *   Date: "Date: ${now}"
+    *   Target Directory: "Target Directory: ${metadata.directory}"
+2.  **Executive Summary**: Is the agent reliable? What is the dominant failure mode?
+3.  **Root Cause Analysis**:
+    *   Analyze the provided "Root Cause Statistics".
+    *   Are failures mostly due to the *environment* (flaky tools, network) or the *model* (hallucination, confusion)?
+    *   *Insight*: If Environment Issues are high, we need better tools. If Model Hallucinations are high, we need better prompts.
+4.  **Tool Reliability Analysis**:
+    *   Identify which specific tools failed most often (e.g., \`write_file\`, \`replace\`, \`adb\`, \`python\`).
+    *   Describe the failure mode for the top failing tools.
+    *   *Example*: "The \`write_file\` tool frequently caused syntax errors when generating Python scripts."
+5.  **User Sentiment & Intervention**:
+    *   When users intervene, are they **frustrated** (shouting, stopping) or **helpful** (guiding)?
+    *   What triggers the most frustration? (e.g., Infinite loops? Deleting files?)
+6.  **Critical Failure Categories**:
+    *   Group the specific incidents into categories (e.g., "Deployment Hell", "Ghost Bugs", "Context Loss").
+    *   Provide specific examples from the logs.
+6.  **"Hunting" Patterns**:
+    *   What information is the agent blindly searching for?
+    *   Why is it hard to find?
+7.  **Action Plan**:
+    *   **P0 (Critical)**: Immediate fixes for high-severity/frustration items.
+    *   **P1 (Strategic)**: New tools or capabilities to address root causes.
+    *   **P2 (UX)**: Improvements to error messages or recovery flows.
 
-**Note:**
-- The input contains raw "friction" events. Synthesize them into patterns. Do not just list every single event.
-- Use the provided Analysis Date in the report header.
+**Tone**: Honest, critical, engineering-focused.
 </instructions>
 
 <input_data>
