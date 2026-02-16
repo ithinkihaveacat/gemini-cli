@@ -29,9 +29,15 @@ interface SessionInsight {
     category: string;
     specific_tool: string;
     params?: string;
-    is_edge_case: boolean;
+    usage_pattern:
+      | "standard"
+      | "workaround"
+      | "exploration"
+      | "verification"
+      | "other";
+    effectiveness: "high" | "medium" | "low" | "failed";
+    gap_identified: boolean;
     human_suggested: boolean;
-    debugging_context?: string;
     notes?: string;
   }>;
 }
@@ -223,35 +229,33 @@ async function processLogFile(
 
   const { content: transcript, rawSize, filteredSize } = resultData;
 
-  // Refined prompt based on gemini-text-analysis.md strategies
   const prompt = `
 <role>
 You are an expert software engineering analyst specializing in evaluating the effectiveness of tools used by AI agents.
 </role>
 
 <instructions>
-1. **Analyze** the provided log to identify every tool invocation, command, or distinct action taken by the agent.
-2. **Goal**: Identify which tools were essential, which were efficient, and where the agent struggled or needed to invent its own solutions.
-3. **Focus** on "tools" in the broadest sense:
-    - Standard CLI tools (grep, find, git).
-    - Build systems (gradlew).
-    - Device interactions (adb, emumanager).
-    - Specialized skills (jetpack-inspect, screenshot-compare).
-    - *Debugging workflows*: Note simultaneous actions (e.g., background logcat + UI manipulation).
-    - **Script Creation & Modification**: identify when the agent writes a script (bash, python, etc.) to investigate behavior or automate a task.
-4. **Extract** details for each tool:
-    - **Category**: Broad classification.
-    - **Specific Tool**: The exact command or skill name.
-    - **Params**: Key arguments/constraints (e.g., specific API levels, --snapshot).
-    - **Context**: Why was it used? Was it part of a debugging loop?
-    - **Human Intervention**: Did a human prompt its use or suggest the script creation?
-    - **Hunt & Resolve**: Did the agent "hunt" for a tool or create one to resolve an error or missing capability?
-    - **Utility/Gap**: Was this tool highly effective, or was it a workaround for a missing capability?
+1. **Plan**: Scan the log to identify every tool invocation, command execution, or script creation/execution.
+2. **Execute**: For each action, extract the following details:
+    - **Category**: Broad classification (e.g., FileOps, Device, Build, Search).
+    - **Specific Tool**: The exact command or skill (e.g., \`grep\`, \`adb-screenshot\`, \`gradlew\`).
+    - **Usage Pattern**:
+        - \`standard\`: Using the tool as intended.
+        - \`workaround\`: Combining tools clumsily or using flags to bypass issues.
+        - \`exploration\`: Using the tool to discover state (e.g., \`ls\`, \`find\`, \`inspect\`).
+        - \`verification\`: Using the tool to check a previous action (e.g., \`cat\` after write, \`logcat\` after click).
+    - **Effectiveness**:
+        - \`high\`: Immediate success, useful output.
+        - \`medium\`: Success after retries or minor issues.
+        - \`low\`: Returned useless data or confusing error.
+        - \`failed\`: Tool crash or total block.
+    - **Gap Identified**: Set to \`true\` if the agent had to *write* a script (Python/Bash) because a standard tool didn't exist, or if it had to run >3 commands to do 1 simple thing.
+3. **Validate**: Ensure \`gap_identified\` is only true for genuine missing capabilities, not just user preference.
 </instructions>
 
 <constraints>
 - Output must be valid JSON matching the provided schema.
-- Be exhaustive: capture even single-use tools if they solved a specific problem.
+- Capture significant "read" operations (like reading source code) as tools.
 </constraints>
 
 <log_excerpt>
@@ -275,19 +279,30 @@ ${transcript}
                 category: { type: Type.STRING },
                 specific_tool: { type: Type.STRING },
                 params: { type: Type.STRING },
-                is_edge_case: { type: Type.BOOLEAN },
-                human_suggested: { type: Type.BOOLEAN },
-                debugging_context: {
+                usage_pattern: {
                   type: Type.STRING,
-                  description:
-                    "Details on debugging workflow (e.g., background processes, monitoring)."
+                  enum: [
+                    "standard",
+                    "workaround",
+                    "exploration",
+                    "verification",
+                    "other"
+                  ]
                 },
+                effectiveness: {
+                  type: Type.STRING,
+                  enum: ["high", "medium", "low", "failed"]
+                },
+                gap_identified: { type: Type.BOOLEAN },
+                human_suggested: { type: Type.BOOLEAN },
                 notes: { type: Type.STRING }
               },
               required: [
                 "category",
                 "specific_tool",
-                "is_edge_case",
+                "usage_pattern",
+                "effectiveness",
+                "gap_identified",
                 "human_suggested"
               ]
             }
@@ -367,7 +382,7 @@ Data Volume:
 
 <instructions>
 Synthesize the provided JSON list of tool usages into a comprehensive "Agent Capabilities & Tooling Requirements Report".
-The goal of this report is to inform the development of a standard toolset for Android-focused AI agents.
+The goal is to inform the development of a standard toolset for Android-focused AI agents.
 
 **Report Structure:**
 
@@ -376,23 +391,23 @@ The goal of this report is to inform the development of a standard toolset for A
     *   Date: "Date: ${now}" (on a new line)
     *   Target Directory: "Target Directory: ${metadata.directory}" (on a new line)
 2.  **Executive Summary**: High-level overview of the agent's demonstrated workflows and key tool dependencies.
-3.  **Essential Toolset (The "Standard Library")**:
-    *   Group tools logically (5-10 categories).
-    *   For each, list the specific tools/commands that proved most useful.
-    *   Describe *why* they are essential for an Android agent.
-4.  **Custom Tool Creation & "Missing" Tools**:
-    *   Highlight instances where the agent **created** or **modified** scripts. These represent **GAPS** in the standard toolset.
-    *   Analyze "hunting" behaviors where the agent struggled to find the right tool.
-    *   *Actionable Insight*: What standard tool should be built to replace these ad-hoc scripts?
-5.  **Advanced Debugging Workflows**:
+3.  **Tool Effectiveness Matrix**:
+    *   List the most used tools and their typical \`effectiveness\` rating.
+    *   Highlight tools that frequently land in the 'low' or 'failed' categories.
+4.  **Usage Pattern Analysis**:
+    *   What % of tool use is \`standard\` vs \`workaround\`?
+    *   Identify high-value \`exploration\` workflows (how does the agent learn?).
+5.  **Identified Capabilities Gaps**:
+    *   Analyze instances where \`gap_identified\` is true.
+    *   What scripts is the agent writing? (e.g., "Batch file updater", "Log parser").
+    *   *Recommendation*: Which of these scripts should be promoted to first-class tools?
+6.  **Advanced Debugging Workflows**:
     *   Describe complex, multi-step workflows (e.g., log injection + UI automation).
-    *   Highlight tools that enabled "super-human" or highly efficient debugging (e.g., AI vision for UI verification).
-6.  **Edge Cases & Environment Constraints**:
-    *   Specific versions (SNAPSHOTs, API levels) and how tools handled them.
+    *   Highlight tools that enabled "super-human" or highly efficient debugging.
 7.  **Recommendations for Future Tooling**:
     *   Based on the analysis, propose a prioritized list of tools/capabilities that should be added to the core Android Agent platform to improve efficiency and autonomy.
 
-**Note:** The input data may be large. Do not truncate the list of tools; a longer, detailed report is preferred over a summary that misses edge cases.
+**Note:** Focus on *evidence-based* recommendations from the log data.
 </instructions>
 
 <input_data>
