@@ -17,6 +17,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { parseArgs } from "node:util";
+// @ts-expect-error: DEFAULT_LEGACY_SET is not exported from the core package yet, but available at runtime.
+import { DEFAULT_LEGACY_SET } from "@google/gemini-cli-core/dist/src/tools/definitions/model-family-sets/default-legacy.js";
 
 const ANALYSIS_MODEL = "gemini-3-flash-preview";
 const AGGREGATION_MODEL = "gemini-3-pro-preview";
@@ -33,13 +35,20 @@ interface MissingCapability {
 
 interface IllegibleEnvironment {
   tool_used: string;
-  issue_type: "truncated_output" | "cryptic_error" | "massive_trace" | "silent_failure" | "other";
+  tool_type: "system" | "custom";
+  issue_type:
+    | "truncated_output"
+    | "cryptic_error"
+    | "massive_trace"
+    | "silent_failure"
+    | "other";
   impact: "context_destroyed" | "confusion" | "false_positive";
   details: string;
 }
 
 interface FlakyOrSlowTool {
   tool_used: string;
+  tool_type: "system" | "custom";
   issue_type: "flaky" | "slow";
   impact_on_loop: string;
   details: string;
@@ -63,14 +72,14 @@ interface LoopAnalysisInsight {
 
 function usage() {
   const scriptName = path.basename(process.argv[1]);
-  console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY OUTPUT_DIR
+  console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY OUTPUT_FILE
 
 Analyzes Gemini CLI logs to identify mechanical loop failures, tooling gaps, and environmental friction.
-Produces 'platform-engineering-spec.md' in the OUTPUT_DIR.
+Produces a 'Platform Engineering Spec' Markdown report at the specified OUTPUT_FILE.
 
 Arguments:
   DIRECTORY         The directory to look up history for.
-  OUTPUT_DIR        The directory to write the Markdown report to.
+  OUTPUT_FILE       The path to write the Markdown report to.
 
 Options:
   --limit NUMBER        Limit analysis to the N most recent conversations (default: all).
@@ -85,17 +94,25 @@ Environment:
 
 function loadSkillsDocumentation(skillsDir: string): string {
   if (!fs.existsSync(skillsDir) || !fs.statSync(skillsDir).isDirectory()) {
-    console.warn(`Warning: Skills directory not found at ${skillsDir}. Proceeding without custom tool context.`);
+    console.warn(
+      `Warning: Skills directory not found at ${skillsDir}. Proceeding without custom tool context.`
+    );
     return "No custom tool documentation available.";
   }
 
   let documentation = "";
-  const skillFolders = fs.readdirSync(skillsDir).filter(f => fs.statSync(path.join(skillsDir, f)).isDirectory());
+  const skillFolders = fs
+    .readdirSync(skillsDir)
+    .filter((f) => fs.statSync(path.join(skillsDir, f)).isDirectory());
 
   for (const skill of skillFolders) {
     const skillPath = path.join(skillsDir, skill);
     const skillMdPath = path.join(skillPath, "SKILL.md");
-    const commandIndexPath = path.join(skillPath, "references", "command-index.md");
+    const commandIndexPath = path.join(
+      skillPath,
+      "references",
+      "command-index.md"
+    );
 
     if (fs.existsSync(skillMdPath)) {
       documentation += `\n--- Skill: ${skill} ---\n`;
@@ -103,8 +120,8 @@ function loadSkillsDocumentation(skillsDir: string): string {
     }
 
     if (fs.existsSync(commandIndexPath)) {
-       documentation += `\n--- Skill Reference: ${skill}/command-index ---\n`;
-       documentation += fs.readFileSync(commandIndexPath, "utf8");
+      documentation += `\n--- Skill Reference: ${skill}/command-index ---\n`;
+      documentation += fs.readFileSync(commandIndexPath, "utf8");
     }
   }
 
@@ -112,6 +129,18 @@ function loadSkillsDocumentation(skillsDir: string): string {
     return "No valid SKILL.md files found in skills directory.";
   }
 
+  return documentation;
+}
+
+function loadSystemToolsDocumentation(): string {
+  let documentation = "";
+  for (const [key, tool] of Object.entries(DEFAULT_LEGACY_SET)) {
+    if (typeof tool === "function") continue; // Skip dynamic tool factories
+    // @ts-expect-error: tool is typed as generic CoreTool, name exists on runtime object
+    documentation += `\n--- System Tool: ${tool.name} (id: ${key}) ---\n`;
+    // @ts-expect-error: tool is typed as generic CoreTool, description exists on runtime object
+    documentation += `Description: ${tool.description}\n`;
+  }
   return documentation;
 }
 
@@ -137,7 +166,7 @@ async function main() {
   }
 
   const targetDirArg = positionals[0];
-  const outputDirArg = positionals[1];
+  const outputFileArg = positionals[1];
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -147,11 +176,12 @@ async function main() {
 
   const skillsDir = values["skills-dir"] || DEFAULT_SKILLS_DIR;
   const customToolContext = loadSkillsDocumentation(skillsDir);
-  
+  const systemToolContext = loadSystemToolsDocumentation();
+
   if (customToolContext.length > 50000) {
-      console.warn(`Warning: Custom tool context is very large (${formatBytes(Buffer.byteLength(customToolContext))} bytes). Truncating to 50KB to preserve context window.`);
-      // Simple truncation for now, ideally we'd prioritize SKILL.md over references
-      // But for this use case, we just need to ensure we don't blow the context.
+    console.warn(
+      `Warning: Custom tool context is very large (${formatBytes(Buffer.byteLength(customToolContext))} bytes). Truncating to 50KB to preserve context window.`
+    );
   }
 
   const genAI = new GoogleGenAI({ apiKey });
@@ -165,12 +195,9 @@ async function main() {
     process.exit(1);
   }
 
-  const resolvedOutputDir = path.resolve(outputDirArg);
-  if (!fs.existsSync(resolvedOutputDir)) {
-    fs.mkdirSync(resolvedOutputDir, { recursive: true });
-  } else if (!fs.statSync(resolvedOutputDir).isDirectory()) {
-    console.error(`Error: Output path '${resolvedOutputDir}' is not a directory.`);
-    process.exit(1);
+  const outputDir = path.dirname(path.resolve(outputFileArg));
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
   }
 
   const hash = getProjectHash(resolvedTargetDir);
@@ -220,19 +247,23 @@ async function main() {
   const processLogFileWrapper = async (
     filePath: string
   ): Promise<BaseProcessResult<LoopAnalysisInsight> | null> => {
-    return runWithRetry(() => processLogFile(filePath, genAI, customToolContext), {
-      maxRetries: MAX_RETRIES_PER_REQUEST,
-      onRetry: () => {
-        totalRetries++;
-        if (totalRetries > MAX_TOTAL_RETRIES) {
-          console.error(
-            `\nMax total retries (${MAX_TOTAL_RETRIES}) exceeded. Skipping ${path.basename(filePath)}.`
-          );
-          return false; // Stop retrying
+    return runWithRetry(
+      () =>
+        processLogFile(filePath, genAI, customToolContext, systemToolContext),
+      {
+        maxRetries: MAX_RETRIES_PER_REQUEST,
+        onRetry: () => {
+          totalRetries++;
+          if (totalRetries > MAX_TOTAL_RETRIES) {
+            console.error(
+              `\nMax total retries (${MAX_TOTAL_RETRIES}) exceeded. Skipping ${path.basename(filePath)}.`
+            );
+            return false; // Stop retrying
+          }
+          return true; // Continue retrying
         }
-        return true; // Continue retrying
       }
-    });
+    );
   };
 
   const {
@@ -248,12 +279,17 @@ async function main() {
   );
 
   if (insights.length === 0) {
-    console.log("No insights extracted. All analysis attempts failed or returned empty.");
+    console.log(
+      "No insights extracted. All analysis attempts failed or returned empty."
+    );
     process.exit(0);
   }
 
   if (values["dump-analysis"]) {
-    fs.writeFileSync(values["dump-analysis"], JSON.stringify(insights, null, 2));
+    fs.writeFileSync(
+      values["dump-analysis"],
+      JSON.stringify(insights, null, 2)
+    );
     console.error(`Raw combined output written to: ${values["dump-analysis"]}`);
   }
 
@@ -270,23 +306,29 @@ async function main() {
     totalSummarizedBytes
   };
 
-  const report = await aggregateToolingGapAnalysis(insights, genAI, metadata, customToolContext);
+  const report = await aggregateToolingGapAnalysis(
+    insights,
+    genAI,
+    metadata,
+    customToolContext,
+    systemToolContext
+  );
 
   if (!report) {
-     console.error("Aggregation failed to produce a report.");
-     process.exit(1);
+    console.error("Aggregation failed to produce a report.");
+    process.exit(1);
   }
 
-  const reportFile = path.join(resolvedOutputDir, "platform-engineering-spec.md");
-  fs.writeFileSync(reportFile, report);
+  fs.writeFileSync(outputFileArg, report);
 
-  console.log(`\nSpec sheet written to: ${reportFile}`);
+  console.log(`\nSpec sheet written to: ${outputFileArg}`);
 }
 
 async function processLogFile(
   filePath: string,
   genAI: GoogleGenAI,
-  customToolContext: string
+  customToolContext: string,
+  systemToolContext: string
 ): Promise<BaseProcessResult<LoopAnalysisInsight> | null> {
   const resultData = readAndFormatChatLog(filePath);
   if (!resultData) return null;
@@ -304,8 +346,13 @@ async function processLogFile(
 You are an expert Platform Engineer specializing in the design of agentic execution loops. Your goal is to make the environment "legible" to AI agents and eliminate friction.
 </role>
 
+<system_tool_context>
+The agent has access to the following built-in system tools.
+${systemToolContext}
+</system_tool_context>
+
 <custom_tool_context>
-The agent has access to the following custom skills/tools. Use this context to evaluate if the agent is using them correctly or if the tools themselves are confusing/illegible.
+The agent has access to the following custom skills/tools.
 NOTE: These skills may have changed since the logs were generated. Treat this as reference context.
 
 ${customToolContext.slice(0, 50000)}
@@ -314,14 +361,19 @@ ${customToolContext.slice(0, 50000)}
 <instructions>
 1. **Analyze the Loop**: Read the provided log excerpt to observe the agent's mechanical execution loop.
 2. **FILTER OUT Context Failures**: Ignore failures caused by vague user prompts, changing requirements, or business logic misunderstandings. Focus EXCLUSIVELY on the mechanical execution loop: tools, environment, legibility, and execution speed.
-3. **Review Custom Tool Usage**: Compare the agent's actions against the <custom_tool_context>.
-    - If the agent struggles to use a custom tool (e.g. 'jetpack') correctly, or gets confused by its output, log this as an **Illegible Environment**.
-    - If the agent bypasses a custom tool to use raw shell commands (like 'curl' instead of 'jetpack source'), log this as a **Stubborn Workaround**.
+3. **Review Tool Usage**: Compare the agent's actions against the tool contexts.
+    - **System Tools**: Evaluate built-in tools like 'read_file', 'replace', 'run_shell_command'. Are they efficient? Do they fail often?
+    - **Custom Tools**: Evaluate custom skills like 'jetpack', 'adb'.
+    - If the agent struggles to use a tool correctly, or gets confused by its output, log this as an **Illegible Environment**.
+    - If the agent bypasses a tool to use raw shell commands (like 'curl' instead of 'jetpack source'), log this as a **Stubborn Workaround**.
 4. **Extract Mechanical Breakdowns**: Populate the JSON schema identifying specific mechanical issues:
     - **Missing Capabilities**: Absolute tooling failures. The agent hit a wall because it lacked a "sense" or actuator.
-    - **Illegible Environments**: The tool worked, but the output was hostile to an agent (e.g., truncated logs, cryptic errors, massive context-destroying stack traces, silent failures).
+    - **Illegible Environments**: The tool worked, but the output was hostile to an agent (e.g., truncated logs, cryptic errors, massive context-destroying stack traces, silent failures). **CRITICAL**: Identify if the tool is 'system' or 'custom'.
     - **Flaky or Slow Tools**: Tools that broke the tight iteration loop by taking too long or failing randomly.
     - **Stubborn Workarounds**: Look for loud alarms! Did the agent write a custom script (Python/Bash) to parse a log? Did it chain 5 \`grep\`/\`sed\` commands together because a default tool output was bad?
+
+**IMPORTANT EXCLUSION:**
+If you see the text \`[ANALYSIS_SCRIPT_TRUNCATED_THIS_LOG_FOR_BREVITY_THE_AGENT_SAW_FULL_CONTENT]\`, this was inserted by the analysis script you are currently running. The original agent **SAW THE FULL CONTENT**. Do NOT report this as a truncation failure or illegible environment. Only report truncation if the *tool output itself* says "Output truncated" or similar.
 </instructions>
 
 <constraints>
@@ -356,7 +408,12 @@ ${transcript}
                 },
                 details: { type: Type.STRING }
               },
-              required: ["task_attempted", "missing_sense_or_actuator", "agent_response", "details"]
+              required: [
+                "task_attempted",
+                "missing_sense_or_actuator",
+                "agent_response",
+                "details"
+              ]
             }
           },
           illegible_environments: {
@@ -365,9 +422,16 @@ ${transcript}
               type: Type.OBJECT,
               properties: {
                 tool_used: { type: Type.STRING },
+                tool_type: { type: Type.STRING, enum: ["system", "custom"] },
                 issue_type: {
                   type: Type.STRING,
-                  enum: ["truncated_output", "cryptic_error", "massive_trace", "silent_failure", "other"]
+                  enum: [
+                    "truncated_output",
+                    "cryptic_error",
+                    "massive_trace",
+                    "silent_failure",
+                    "other"
+                  ]
                 },
                 impact: {
                   type: Type.STRING,
@@ -375,24 +439,37 @@ ${transcript}
                 },
                 details: { type: Type.STRING }
               },
-              required: ["tool_used", "issue_type", "impact", "details"]
+              required: [
+                "tool_used",
+                "tool_type",
+                "issue_type",
+                "impact",
+                "details"
+              ]
             }
           },
           flaky_or_slow_tools: {
-             type: Type.ARRAY,
-             items: {
-               type: Type.OBJECT,
-               properties: {
-                 tool_used: { type: Type.STRING },
-                 issue_type: {
-                   type: Type.STRING,
-                   enum: ["flaky", "slow"]
-                 },
-                 impact_on_loop: { type: Type.STRING },
-                 details: { type: Type.STRING }
-               },
-               required: ["tool_used", "issue_type", "impact_on_loop", "details"]
-             }
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                tool_used: { type: Type.STRING },
+                tool_type: { type: Type.STRING, enum: ["system", "custom"] },
+                issue_type: {
+                  type: Type.STRING,
+                  enum: ["flaky", "slow"]
+                },
+                impact_on_loop: { type: Type.STRING },
+                details: { type: Type.STRING }
+              },
+              required: [
+                "tool_used",
+                "tool_type",
+                "issue_type",
+                "impact_on_loop",
+                "details"
+              ]
+            }
           },
           stubborn_workarounds: {
             type: Type.ARRAY,
@@ -408,7 +485,13 @@ ${transcript}
                 success: { type: Type.BOOLEAN },
                 details: { type: Type.STRING }
               },
-              required: ["goal", "workaround_sequence", "custom_script_written", "success", "details"]
+              required: [
+                "goal",
+                "workaround_sequence",
+                "custom_script_written",
+                "success",
+                "details"
+              ]
             }
           }
         }
@@ -439,13 +522,26 @@ ${transcript}
 async function aggregateToolingGapAnalysis(
   insights: LoopAnalysisInsight[],
   genAI: GoogleGenAI,
-  metadata: any,
-  customToolContext: string
+  metadata: {
+    directory: string;
+    totalFound: number;
+    selectedCount: number;
+    analyzedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    totalRawBytes: number;
+    totalFilteredBytes: number;
+    totalSummarizedBytes: number;
+  },
+  customToolContext: string,
+  systemToolContext: string
 ): Promise<string | null> {
   // Filter out empty sessions to save context
   const sessionData = insights
     .map((insight) => ({
-      session: insight.sessionFile ? path.basename(insight.sessionFile) : "unknown",
+      session: insight.sessionFile
+        ? path.basename(insight.sessionFile)
+        : "unknown",
       missing_capabilities: insight.missing_capabilities || [],
       illegible_environments: insight.illegible_environments || [],
       flaky_or_slow_tools: insight.flaky_or_slow_tools || [],
@@ -460,8 +556,10 @@ async function aggregateToolingGapAnalysis(
     );
 
   if (sessionData.length === 0) {
-     console.warn("No mechanical friction points found in the processed logs. Nothing to aggregate.");
-     return "# Platform Engineering Spec\n\nNo significant mechanical friction or tooling gaps detected in this dataset.";
+    console.warn(
+      "No mechanical friction points found in the processed logs. Nothing to aggregate."
+    );
+    return "# Platform Engineering Spec\n\nNo significant mechanical friction or tooling gaps detected in this dataset.";
   }
 
   const inputData = JSON.stringify(sessionData, null, 2);
@@ -470,7 +568,7 @@ async function aggregateToolingGapAnalysis(
   if (inputSize > MAX_AGGREGATION_BYTES) {
     console.error(
       `WARNING: Extracted JSON data (${formatBytes(inputSize)}) exceeds limit of ${formatBytes(MAX_AGGREGATION_BYTES)}.` +
-      ` The LLM may drop context or reject the request.`
+        ` The LLM may drop context or reject the request.`
     );
   }
 
@@ -488,8 +586,13 @@ Logs Analyzed: ${metadata.analyzedCount}
 Logs with Detected Friction: ${sessionData.length}
 </context>
 
+<system_tool_context>
+The agent had access to the following system tools.
+${systemToolContext}
+</system_tool_context>
+
 <custom_tool_context>
-The agent had access to the following custom tools. Use this to identify where existing tools need improvement.
+The agent had access to the following custom tools.
 ${customToolContext.slice(0, 50000)}
 </custom_tool_context>
 
@@ -506,12 +609,12 @@ Your goal is to identify exactly what tools need to be built or fixed to enable 
 3.  **The Blind Spots (Missing Capabilities)**:
     *   Analyze the \`missing_capabilities\` array.
     *   Identify exactly what new tools, "senses", or MCP servers MUST be built because the agent fundamentally cannot observe or act on specific states.
-4.  **The Friction Points (Legibility & Speed)**:
-    *   Analyze \`illegible_environments\` and \`flaky_or_slow_tools\`.
-    *   Which existing commands or tool outputs need to be wrapped, formatted differently, or sped up?
-5.  **Custom Tool Feedback (Specific to Context)**:
-    *   Analyze friction related specifically to the custom tools documented in the <custom_tool_context> (e.g. 'jetpack').
-    *   Recommend specific modifications to their CLI interface, output formatting, or functionality to eliminate friction and make them more 'legible' to the agent.
+4.  **System Tool Feedback (Built-in)**:
+    *   Analyze friction related to built-in system tools like 'read_file', 'replace'.
+    *   Recommend specific improvements. For example, if 'replace' is brittle, suggest a unified diff tool.
+5.  **Custom Tool Feedback (Domain Specific)**:
+    *   Analyze friction related to custom tools (e.g. 'jetpack').
+    *   Recommend specific modifications to their CLI interface.
 6.  **Emergent Tools (Actionable Workarounds)**:
     *   Analyze \`stubborn_workarounds\`.
     *   List the clever, brittle scripts or massive command chains the agent invented.
@@ -527,7 +630,7 @@ ${inputData}
     model: AGGREGATION_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }]
   });
-  
+
   return result.text || null;
 }
 

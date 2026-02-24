@@ -139,7 +139,9 @@ export function readAndFormatChatLog(filePath: string): {
       let text = partListUnionToString(m.content);
       if (text.length > 20000) {
         text =
-          text.slice(0, 10000) + "\n... [TRUNCATED] ...\n" + text.slice(-10000);
+          text.slice(0, 10000) +
+          "\n... [ANALYSIS_SCRIPT_TRUNCATED_THIS_LOG_FOR_BREVITY_THE_AGENT_SAW_FULL_CONTENT] ...\n" +
+          text.slice(-10000);
       }
       return `${role}: ${text}`;
     })
