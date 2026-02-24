@@ -17,5 +17,4 @@ npm install
 npm run build
 echo "Build complete. Tools available in tools/dist/:"
 echo "  node tools/dist/gemini-history.js DIRECTORY"
-echo "  node tools/dist/gemini-insights-tool-use.js DIRECTORY OUTPUT_FILE"
-echo "  node tools/dist/gemini-insights-friction.js DIRECTORY OUTPUT_FILE"
+echo "  node tools/dist/gemini-insights.js DIRECTORY OUTPUT_FILE"

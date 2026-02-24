@@ -17,7 +17,6 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { parseArgs } from "node:util";
-// @ts-expect-error: DEFAULT_LEGACY_SET is not exported from the core package yet, but available at runtime.
 import { DEFAULT_LEGACY_SET } from "@google/gemini-cli-core/dist/src/tools/definitions/model-family-sets/default-legacy.js";
 
 const ANALYSIS_MODEL = "gemini-3-flash-preview";
@@ -25,6 +24,16 @@ const AGGREGATION_MODEL = "gemini-3-pro-preview";
 const MAX_TOTAL_RETRIES = 10;
 const MAX_RETRIES_PER_REQUEST = 3;
 const DEFAULT_SKILLS_DIR = path.join(os.homedir(), ".agents", "skills");
+const MAX_CUSTOM_CONTEXT_BYTES = 100000;
+
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 interface MissingCapability {
   task_attempted: string;
@@ -136,9 +145,7 @@ function loadSystemToolsDocumentation(): string {
   let documentation = "";
   for (const [key, tool] of Object.entries(DEFAULT_LEGACY_SET)) {
     if (typeof tool === "function") continue; // Skip dynamic tool factories
-    // @ts-expect-error: tool is typed as generic CoreTool, name exists on runtime object
     documentation += `\n--- System Tool: ${tool.name} (id: ${key}) ---\n`;
-    // @ts-expect-error: tool is typed as generic CoreTool, description exists on runtime object
     documentation += `Description: ${tool.description}\n`;
   }
   return documentation;
@@ -178,12 +185,11 @@ async function main() {
   const customToolContext = loadSkillsDocumentation(skillsDir);
   const systemToolContext = loadSystemToolsDocumentation();
 
-  if (customToolContext.length > 50000) {
+  if (customToolContext.length > MAX_CUSTOM_CONTEXT_BYTES) {
     console.warn(
-      `Warning: Custom tool context is very large (${formatBytes(Buffer.byteLength(customToolContext))} bytes). Truncating to 50KB to preserve context window.`
+      `Warning: Custom tool context is very large (${formatBytes(Buffer.byteLength(customToolContext))} bytes). Truncating to ${formatBytes(MAX_CUSTOM_CONTEXT_BYTES)} to preserve context window.`
     );
   }
-
   const genAI = new GoogleGenAI({ apiKey });
 
   const resolvedTargetDir = path.resolve(targetDirArg);
@@ -348,14 +354,14 @@ You are an expert Platform Engineer specializing in the design of agentic execut
 
 <system_tool_context>
 The agent has access to the following built-in system tools.
-${systemToolContext}
+${escapeHtml(systemToolContext)}
 </system_tool_context>
 
 <custom_tool_context>
 The agent has access to the following custom skills/tools.
 NOTE: These skills may have changed since the logs were generated. Treat this as reference context.
 
-${customToolContext.slice(0, 50000)}
+${escapeHtml(customToolContext.slice(0, MAX_CUSTOM_CONTEXT_BYTES))}
 </custom_tool_context>
 
 <instructions>
@@ -588,12 +594,12 @@ Logs with Detected Friction: ${sessionData.length}
 
 <system_tool_context>
 The agent had access to the following system tools.
-${systemToolContext}
+${escapeHtml(systemToolContext)}
 </system_tool_context>
 
 <custom_tool_context>
 The agent had access to the following custom tools.
-${customToolContext.slice(0, 50000)}
+${escapeHtml(customToolContext.slice(0, MAX_CUSTOM_CONTEXT_BYTES))}
 </custom_tool_context>
 
 <instructions>
