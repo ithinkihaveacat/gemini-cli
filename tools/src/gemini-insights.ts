@@ -20,7 +20,7 @@ import { parseArgs } from "node:util";
 import { DEFAULT_LEGACY_SET } from "@google/gemini-cli-core/dist/src/tools/definitions/model-family-sets/default-legacy.js";
 
 const ANALYSIS_MODEL = "gemini-3-flash-preview";
-const AGGREGATION_MODEL = "gemini-3-pro-preview";
+const AGGREGATION_MODEL = "gemini-3.1-pro-preview";
 const MAX_TOTAL_RETRIES = 10;
 const MAX_RETRIES_PER_REQUEST = 3;
 const DEFAULT_SKILLS_DIR = path.join(os.homedir(), ".agents", "skills");
@@ -73,6 +73,7 @@ interface StubbornWorkaround {
 
 interface LoopAnalysisInsight {
   sessionFile?: string;
+  primary_goal?: string; // New field for session goal
   missing_capabilities?: MissingCapability[];
   illegible_environments?: IllegibleEnvironment[];
   flaky_or_slow_tools?: FlakyOrSlowTool[];
@@ -84,7 +85,7 @@ function usage() {
   console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY OUTPUT_FILE
 
 Analyzes Gemini CLI logs to identify mechanical loop failures, tooling gaps, and environmental friction.
-Produces a 'Platform Engineering Spec' Markdown report at the specified OUTPUT_FILE.
+Produces a 'Friction Report' Markdown report at the specified OUTPUT_FILE.
 
 Arguments:
   DIRECTORY         The directory to look up history for.
@@ -190,6 +191,7 @@ async function main() {
       `Warning: Custom tool context is very large (${formatBytes(Buffer.byteLength(customToolContext))} bytes). Truncating to ${formatBytes(MAX_CUSTOM_CONTEXT_BYTES)} to preserve context window.`
     );
   }
+
   const genAI = new GoogleGenAI({ apiKey });
 
   const resolvedTargetDir = path.resolve(targetDirArg);
@@ -206,7 +208,21 @@ async function main() {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  const hash = getProjectHash(resolvedTargetDir);
+  const projectsJsonPath = path.join(os.homedir(), ".gemini/projects.json");
+  let hash = getProjectHash(resolvedTargetDir);
+  if (fs.existsSync(projectsJsonPath)) {
+    try {
+      const projectsData = JSON.parse(
+        fs.readFileSync(projectsJsonPath, "utf8")
+      );
+      if (projectsData.projects && projectsData.projects[resolvedTargetDir]) {
+        hash = projectsData.projects[resolvedTargetDir];
+      }
+    } catch (e) {
+      console.warn("Failed to read ~/.gemini/projects.json", e);
+    }
+  }
+
   const geminiTmp = path.join(os.homedir(), ".gemini/tmp", hash);
   const chatsDir = path.join(geminiTmp, "chats");
 
@@ -299,7 +315,7 @@ async function main() {
     console.error(`Raw combined output written to: ${values["dump-analysis"]}`);
   }
 
-  console.error("\nSynthesizing Platform Engineering Spec...");
+  console.error("\nSynthesizing Friction Report...");
   const metadata = {
     directory: resolvedTargetDir,
     totalFound: totalFoundCount,
@@ -309,7 +325,13 @@ async function main() {
     skippedCount: skippedCount,
     totalRawBytes,
     totalFilteredBytes,
-    totalSummarizedBytes
+    totalSummarizedBytes,
+    startTime: chatFiles[chatFiles.length - 1]?.time
+      ? new Date(chatFiles[chatFiles.length - 1].time).toISOString()
+      : "Unknown",
+    endTime: chatFiles[0]?.time
+      ? new Date(chatFiles[0].time).toISOString()
+      : "Unknown"
   };
 
   const report = await aggregateToolingGapAnalysis(
@@ -366,13 +388,14 @@ ${escapeHtml(customToolContext.slice(0, MAX_CUSTOM_CONTEXT_BYTES))}
 
 <instructions>
 1. **Analyze the Loop**: Read the provided log excerpt to observe the agent's mechanical execution loop.
-2. **FILTER OUT Context Failures**: Ignore failures caused by vague user prompts, changing requirements, or business logic misunderstandings. Focus EXCLUSIVELY on the mechanical execution loop: tools, environment, legibility, and execution speed.
-3. **Review Tool Usage**: Compare the agent's actions against the tool contexts.
+2. **Identify Primary Goal**: Summarize the agent's main objective in this session in 1 sentence (e.g., "Debugging a UI rendering issue in Wear OS tile").
+3. **FILTER OUT Context Failures**: Ignore failures caused by vague user prompts, changing requirements, or business logic misunderstandings. Focus EXCLUSIVELY on the mechanical execution loop: tools, environment, legibility, and execution speed.
+4. **Review Tool Usage**: Compare the agent's actions against the tool contexts.
     - **System Tools**: Evaluate built-in tools like 'read_file', 'replace', 'run_shell_command'. Are they efficient? Do they fail often?
     - **Custom Tools**: Evaluate custom skills like 'jetpack', 'adb'.
     - If the agent struggles to use a tool correctly, or gets confused by its output, log this as an **Illegible Environment**.
     - If the agent bypasses a tool to use raw shell commands (like 'curl' instead of 'jetpack source'), log this as a **Stubborn Workaround**.
-4. **Extract Mechanical Breakdowns**: Populate the JSON schema identifying specific mechanical issues:
+5. **Extract Mechanical Breakdowns**: Populate the JSON schema identifying specific mechanical issues:
     - **Missing Capabilities**: Absolute tooling failures. The agent hit a wall because it lacked a "sense" or actuator.
     - **Illegible Environments**: The tool worked, but the output was hostile to an agent (e.g., truncated logs, cryptic errors, massive context-destroying stack traces, silent failures). **CRITICAL**: Identify if the tool is 'system' or 'custom'.
     - **Flaky or Slow Tools**: Tools that broke the tight iteration loop by taking too long or failing randomly.
@@ -401,6 +424,10 @@ ${transcript}
       responseSchema: {
         type: Type.OBJECT,
         properties: {
+          primary_goal: {
+            type: Type.STRING,
+            description: "1-sentence summary of the session's objective."
+          },
           missing_capabilities: {
             type: Type.ARRAY,
             items: {
@@ -538,6 +565,8 @@ async function aggregateToolingGapAnalysis(
     totalRawBytes: number;
     totalFilteredBytes: number;
     totalSummarizedBytes: number;
+    startTime: string;
+    endTime: string;
   },
   customToolContext: string,
   systemToolContext: string
@@ -548,6 +577,7 @@ async function aggregateToolingGapAnalysis(
       session: insight.sessionFile
         ? path.basename(insight.sessionFile)
         : "unknown",
+      primary_goal: insight.primary_goal || "Unknown",
       missing_capabilities: insight.missing_capabilities || [],
       illegible_environments: insight.illegible_environments || [],
       flaky_or_slow_tools: insight.flaky_or_slow_tools || [],
@@ -561,11 +591,16 @@ async function aggregateToolingGapAnalysis(
         s.stubborn_workarounds.length > 0
     );
 
+  const goalSummary = insights
+    .map((i) => `- ${i.primary_goal}`)
+    .slice(0, 50)
+    .join("\n"); // Sample top 50 goals for context
+
   if (sessionData.length === 0) {
     console.warn(
       "No mechanical friction points found in the processed logs. Nothing to aggregate."
     );
-    return "# Platform Engineering Spec\n\nNo significant mechanical friction or tooling gaps detected in this dataset.";
+    return "# Friction Report\n\nNo significant mechanical friction or tooling gaps detected in this dataset.";
   }
 
   const inputData = JSON.stringify(sessionData, null, 2);
@@ -588,9 +623,14 @@ You are a Staff Platform Engineer responsible for building the foundational envi
 <context>
 Target Directory: ${metadata.directory}
 Analysis Date: ${now}
+Data Span: ${metadata.startTime} to ${metadata.endTime}
 Logs Analyzed: ${metadata.analyzedCount}
 Logs with Detected Friction: ${sessionData.length}
 </context>
+
+<session_goals_sample>
+${goalSummary}
+</session_goals_sample>
 
 <system_tool_context>
 The agent had access to the following system tools.
@@ -609,19 +649,26 @@ Your goal is to identify exactly what tools need to be built or fixed to enable 
 **Report Structure:**
 
 1.  **Header**:
-    *   Title: "# Platform Engineering Spec: Agent Tooling Gaps & Legibility"
+    *   Title: "# Friction Report: Agent Tooling Gaps & Legibility"
     *   Date & Target Directory.
-2.  **Executive Summary**: A brief, brutally honest assessment of the mechanical environment's legibility.
+2.  **Executive Summary & Velocity Analysis**: 
+    *   Briefly assess the mechanical environment's legibility.
+    *   Analyze the **Session Density**: How intense was the debugging activity over the ${metadata.startTime} to ${metadata.endTime} period? Does high density correlate with specific friction types?
 3.  **The Blind Spots (Missing Capabilities)**:
     *   Analyze the \`missing_capabilities\` array.
     *   Identify exactly what new tools, "senses", or MCP servers MUST be built because the agent fundamentally cannot observe or act on specific states.
-4.  **System Tool Feedback (Built-in)**:
+4.  **Missed Opportunities (Tool Usage vs. Goals)**:
+    *   Review the <session_goals_sample>. The agent was engaged in specific types of work (e.g. UI debugging, refactoring).
+    *   Compare this against the <custom_tool_context>. **Are there available tools that perfectly matched these goals but were IGNORED or BYPASSED by the agent?**
+    *   *Example:* "The agent spent 3 days debugging Widgets but never called the available \`widget-switch\` tool."
+    *   Critique the tool discovery: Why did the agent miss it? (Description too vague? Too hard to invoke?)
+5.  **System Tool Feedback (Built-in)**:
     *   Analyze friction related to built-in system tools like 'read_file', 'replace'.
     *   Recommend specific improvements. For example, if 'replace' is brittle, suggest a unified diff tool.
-5.  **Custom Tool Feedback (Domain Specific)**:
+6.  **Custom Tool Feedback (Domain Specific)**:
     *   Analyze friction related to custom tools (e.g. 'jetpack').
     *   Recommend specific modifications to their CLI interface.
-6.  **Emergent Tools (Actionable Workarounds)**:
+7.  **Emergent Tools (Actionable Workarounds)**:
     *   Analyze \`stubborn_workarounds\`.
     *   List the clever, brittle scripts or massive command chains the agent invented.
     *   **Recommendation**: Specify which of these workarounds we should immediately formalize into reliable, permanent tools.

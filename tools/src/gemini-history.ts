@@ -77,7 +77,19 @@ if (
   process.exit(1);
 }
 
-const hash = getProjectHash(resolvedTargetDir);
+const projectsJsonPath = path.join(os.homedir(), ".gemini/projects.json");
+let hash = getProjectHash(resolvedTargetDir);
+if (fs.existsSync(projectsJsonPath)) {
+  try {
+    const projectsData = JSON.parse(fs.readFileSync(projectsJsonPath, "utf8"));
+    if (projectsData.projects && projectsData.projects[resolvedTargetDir]) {
+      hash = projectsData.projects[resolvedTargetDir];
+    }
+  } catch (e) {
+    console.warn("Failed to read ~/.gemini/projects.json", e);
+  }
+}
+
 const geminiTmp = path.join(os.homedir(), ".gemini/tmp", hash);
 const chatsDir = path.join(geminiTmp, "chats");
 
