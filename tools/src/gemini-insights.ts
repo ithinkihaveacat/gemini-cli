@@ -318,6 +318,13 @@ async function main() {
     processLogFileWrapper
   );
 
+  // Sort insights by timestamp descending to restore order
+  insights.sort((a, b) => {
+    const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return timeB - timeA;
+  });
+
   if (insights.length === 0) {
     console.log(
       "No insights extracted. All analysis attempts failed or returned empty."
