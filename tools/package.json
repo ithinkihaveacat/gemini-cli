@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/gemini-insights.js",
+    "start:insights": "node dist/gemini-insights.js",
     "start:history": "node dist/gemini-history.js"
   },
   "dependencies": {
