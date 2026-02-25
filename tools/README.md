@@ -44,10 +44,10 @@ can run them using `node`.
 node tools/dist/gemini-history.js DIRECTORY
 ```
 
-**Example: Running gemini-insights-tool-use**
+**Example: Running gemini-insights**
 
 ```bash
-node tools/dist/gemini-insights-tool-use.js DIRECTORY OUTPUT_FILE
+node tools/dist/gemini-insights.js DIRECTORY OUTPUT_FILE
 ```
 
 ## Tools
@@ -55,6 +55,8 @@ node tools/dist/gemini-insights-tool-use.js DIRECTORY OUTPUT_FILE
 ### `gemini-history`
 
 Lists user questions from the latest gemini-cli session for a given directory.
+It automatically locates the session history based on the project's short ID in
+`~/.gemini/projects.json`.
 
 **Usage:**
 
@@ -62,62 +64,37 @@ Lists user questions from the latest gemini-cli session for a given directory.
 node tools/dist/gemini-history.js [OPTIONS] DIRECTORY
 ```
 
-### `gemini-insights-tool-use`
+### `gemini-insights`
 
-Analyzes Gemini CLI chat logs to extract insights about tool usage, debugging
-workflows, and agent capabilities. It generates a comprehensive Markdown report
-useful for tool developers and product managers.
+Analyzes Gemini CLI chat logs to generate an **Agentic Loop Friction Report**.
+It identifies mechanical loop failures, tooling gaps, and environmental
+friction, and provides actionable feedback to improve the agentic loop.
 
 **Features:**
 
-- **Parallel Analysis:** Processes multiple chat logs concurrently.
-- **Aggregation:** Synthesizes findings into a structured report.
-- **Gap Analysis:** Identifies custom scripts created by the agent, highlighting
-  missing standard tools.
+- **Friction Detection**: Identifies "Inefficient Tooling" (flaky, slow, or
+  illegible tools) and "Absolute Tooling Failures" (missing capabilities).
+- **Tool Feedback**: Provides specific critiques for System Tools and Custom
+  Tools.
+- **Goal Analysis**: Summarizes session goals and identifies missed
+  opportunities where available tools were ignored.
+- **Workaround Detection**: Flags emergent scripts and workarounds that should
+  be formalized into tools.
 
 **Usage:**
 
 ```bash
-node tools/dist/gemini-insights-tool-use.js [OPTIONS] DIRECTORY OUTPUT_FILE
+node tools/dist/gemini-insights.js [OPTIONS] DIRECTORY OUTPUT_FILE
 ```
 
 **Options:**
 
 - `--limit <NUMBER>`: Limit analysis to the N most recent conversations
   (default: analyze all).
-
-- `--dump-analysis <FILE>`: Save the intermediate analysis data (JSON chunks per
-  session) to a Markdown file.
-
-**Requirements:**
-
-- `GEMINI_API_KEY`: Must be set in the environment.
-
-### `gemini-insights-friction`
-
-Analyzes Gemini CLI chat logs to identify "friction points" where the agent
-struggled to complete tasks. This includes identifying loops (autonomous
-retries), user interventions, and inefficient "hunting" behaviors.
-
-**Features:**
-
-- **Friction Detection:** Identifies loops, repetitive errors, and user
-  corrections.
-- **Hunting Analysis:** Detects inefficient search patterns (e.g., blind
-  `grep`).
-- **Severity Scoring:** Classifies incidents by disruptiveness
-  (Low/Medium/High).
-
-**Usage:**
-
-```bash
-node tools/dist/gemini-insights-friction.js [OPTIONS] DIRECTORY OUTPUT_FILE
-```
-
-**Options:**
-
-- `--limit <NUMBER>`: Limit analysis to the N most recent conversations.
-- `--dump-analysis <FILE>`: Save intermediate JSON analysis to a file.
+- `--skills-dir <DIR>`: Directory containing agent skills (default:
+  `~/.agents/skills`).
+- `--dump-analysis <FILE>`: Save the intermediate analysis data (JSON) to a
+  file.
 
 **Requirements:**
 
@@ -152,39 +129,3 @@ main repository.
    - **Fix**: Run `./tools/build.sh` again. It explicitly triggers a rebuild of
      `packages/core` and automatically attempts to install missing dependencies
      if the build fails.
-
-### Development Guidelines
-
-- **Imports**: When importing from core, try to import from stable utilities or
-  services. Avoid deep links into internal implementation details if possible.
-- **Data Handling**: Always use the provided utility functions (like
-  `partListUnionToString`) to handle data structures, as these handle backward
-  compatibility and format changes (e.g., string vs. array content).
-
-## Design Decisions
-
-### Authentication via Environment Variables
-
-The tools in this directory use the `GEMINI_API_KEY` environment variable
-directly for authentication rather than reusing the main application's `Config`
-object or authentication flow (e.g., `gemini auth login`).
-
-**Rationale:**
-
-1.  **Simplicity**: Instantiating the full `Config` object from `packages/core`
-    brings in a heavy dependency tree (tool registries, agent registries, file
-    system services) that is unnecessary for simple analysis scripts.
-2.  **Stability**: The `Config` constructor and initialization logic change
-    frequently during development. Relying on the raw `GoogleGenAI` SDK keeps
-    these tools more stable and less prone to breaking changes in the main CLI's
-    startup sequence.
-3.  **Isolation**: Keeping these tools lightweight allows them to run with
-    minimal setup, making them easier to debug and maintain independently of the
-    main application's state management.
-
-**Future Considerations:**
-
-If these tools evolve into user-facing extensions or require complex
-capabilities (like accessing user-configured proxy settings, custom headers, or
-OAuth credentials), it may be worth migrating to use `createContentGenerator`
-and `Config` from `@google/gemini-cli-core`.
