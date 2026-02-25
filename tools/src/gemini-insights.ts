@@ -83,6 +83,7 @@ interface StubbornWorkaround {
 interface LoopAnalysisInsight {
   sessionFile?: string;
   timestamp?: string;
+  ref?: string; // Standard Citation ID
   primary_goal?: string; // New field for session goal
   missing_capabilities?: MissingCapability[];
   illegible_environments?: IllegibleEnvironment[];
@@ -571,6 +572,10 @@ ${transcript}
   data.sessionFile = filePath;
   data.timestamp = new Date(fs.statSync(filePath).mtime).toISOString();
 
+  // Format: "session-YYYY-MM-DDTHH-MM-hash.json" -> "YYYY-MM-DDTHH-MM"
+  const filename = path.basename(filePath);
+  data.ref = filename.length >= 24 ? filename.substring(8, 24) : filename;
+
   return {
     insight: data,
     rawSize: rawSize,
@@ -600,9 +605,7 @@ async function aggregateToolingGapAnalysis(
   // Filter out empty sessions to save context
   const sessionData = insights
     .map((insight) => ({
-      session: insight.sessionFile
-        ? path.basename(insight.sessionFile)
-        : "unknown",
+      ref: insight.ref || "unknown",
       primary_goal: insight.primary_goal || "Unknown",
       missing_capabilities: insight.missing_capabilities || [],
       illegible_environments: insight.illegible_environments || [],
@@ -678,6 +681,11 @@ Failures fall into two buckets:
 <instructions>
 Synthesize the provided JSON telemetry of mechanical loop failures into a highly focused, actionable spec sheet.
 Your goal is to identify exactly what tools need to be built or fixed to enable a frictionless, straight-line execution loop ("The Legible Loop").
+
+**Citation Guidelines**:
+- Always cite specific sessions using the \`ref\` field provided in the data (e.g., "In session \`2026-02-25T13-46\`...").
+- Do NOT use full filenames or fuzzy date descriptions.
+- Use quantifiable statements (e.g., "In 3 out of 10 sessions...", "The 'jetpack' tool failed 4 times...").
 
 **Report Structure:**
 
