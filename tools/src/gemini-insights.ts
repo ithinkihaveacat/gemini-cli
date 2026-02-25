@@ -82,6 +82,7 @@ interface StubbornWorkaround {
 
 interface LoopAnalysisInsight {
   sessionFile?: string;
+  timestamp?: string;
   primary_goal?: string; // New field for session goal
   missing_capabilities?: MissingCapability[];
   illegible_environments?: IllegibleEnvironment[];
@@ -561,6 +562,7 @@ ${transcript}
   }
 
   data.sessionFile = filePath;
+  data.timestamp = new Date(fs.statSync(filePath).mtime).toISOString();
 
   return {
     insight: data,
