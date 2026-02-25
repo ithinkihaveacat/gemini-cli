@@ -3,6 +3,15 @@
  * Copyright 2026 Google LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+/**
+ * Agentic Loop Friction Report Tool
+ *
+ * Based on the "Legible Loop" concept:
+ * The goal of the agentic loop is zero human intervention.
+ * This tool identifies two main categories of failure:
+ * 1. Absolute Tooling Failure (Missing Capabilities): The agent lacks the "senses" or "actuators" to complete the loop.
+ * 2. Inefficient Tooling (Friction): Tools exist but are illegible, flaky, or slow, causing the agent to spiral.
+ */
 import { getProjectHash } from "@google/gemini-cli-core/dist/src/utils/paths.js";
 import {
   analyzeInParallel,
@@ -85,7 +94,7 @@ function usage() {
   console.log(`Usage: ${scriptName} [OPTIONS] DIRECTORY OUTPUT_FILE
 
 Analyzes Gemini CLI logs to identify mechanical loop failures, tooling gaps, and environmental friction.
-Produces a 'Friction Report' Markdown report at the specified OUTPUT_FILE.
+Produces an 'Agentic Loop Friction Report' Markdown report at the specified OUTPUT_FILE.
 
 Arguments:
   DIRECTORY         The directory to look up history for.
@@ -315,7 +324,7 @@ async function main() {
     console.error(`Raw combined output written to: ${values["dump-analysis"]}`);
   }
 
-  console.error("\nSynthesizing Friction Report...");
+  console.error("\nSynthesizing Agentic Loop Friction Report...");
   const metadata = {
     directory: resolvedTargetDir,
     totalFound: totalFoundCount,
@@ -371,7 +380,7 @@ async function processLogFile(
 
   const prompt = `
 <role>
-You are an expert Platform Engineer specializing in the design of agentic execution loops. Your goal is to make the environment "legible" to AI agents and eliminate friction.
+You are an expert Platform Engineer specializing in the design of agentic execution loops. Your goal is to make the environment "legible" to AI agents and eliminate friction, ensuring a "Legible Loop" where the agent can observe every state and act deterministically.
 </role>
 
 <system_tool_context>
@@ -393,12 +402,12 @@ ${escapeHtml(customToolContext.slice(0, MAX_CUSTOM_CONTEXT_BYTES))}
 4. **Review Tool Usage**: Compare the agent's actions against the tool contexts.
     - **System Tools**: Evaluate built-in tools like 'read_file', 'replace', 'run_shell_command'. Are they efficient? Do they fail often?
     - **Custom Tools**: Evaluate custom skills like 'jetpack', 'adb'.
-    - If the agent struggles to use a tool correctly, or gets confused by its output, log this as an **Illegible Environment**.
+    - If the agent struggles to use a tool correctly, or gets confused by its output, log this as an **Inefficient Tooling (Friction)** (mapped to 'illegible_environments').
     - If the agent bypasses a tool to use raw shell commands (like 'curl' instead of 'jetpack source'), log this as a **Stubborn Workaround**.
-5. **Extract Mechanical Breakdowns**: Populate the JSON schema identifying specific mechanical issues:
-    - **Missing Capabilities**: Absolute tooling failures. The agent hit a wall because it lacked a "sense" or actuator.
-    - **Illegible Environments**: The tool worked, but the output was hostile to an agent (e.g., truncated logs, cryptic errors, massive context-destroying stack traces, silent failures). **CRITICAL**: Identify if the tool is 'system' or 'custom'.
-    - **Flaky or Slow Tools**: Tools that broke the tight iteration loop by taking too long or failing randomly.
+5. **Extract Mechanical Breakdowns**: Populate the JSON schema identifying specific mechanical issues, categorized by "The Legible Loop" taxonomy:
+    - **Missing Capabilities (Absolute Tooling Failure)**: The agent hit a wall because it lacked a "sense" or actuator. It physically could not observe the state or effect a change.
+    - **Illegible Environments (Inefficient Tooling)**: The tool existed, but actively hindered the loop. Output was truncated, cryptic, massive, or silent. **CRITICAL**: Identify if the tool is 'system' or 'custom'.
+    - **Flaky or Slow Tools (Inefficient Tooling)**: Tools that broke the tight iteration loop by taking too long or failing randomly.
     - **Stubborn Workarounds**: Look for loud alarms! Did the agent write a custom script (Python/Bash) to parse a log? Did it chain 5 \`grep\`/\`sed\` commands together because a default tool output was bad?
 
 **IMPORTANT EXCLUSION:**
@@ -600,7 +609,7 @@ async function aggregateToolingGapAnalysis(
     console.warn(
       "No mechanical friction points found in the processed logs. Nothing to aggregate."
     );
-    return "# Friction Report\n\nNo significant mechanical friction or tooling gaps detected in this dataset.";
+    return "# Agentic Loop Friction Report\n\nNo significant mechanical friction or tooling gaps detected in this dataset.";
   }
 
   const inputData = JSON.stringify(sessionData, null, 2);
@@ -642,33 +651,45 @@ The agent had access to the following custom tools.
 ${escapeHtml(customToolContext.slice(0, MAX_CUSTOM_CONTEXT_BYTES))}
 </custom_tool_context>
 
+<concept_context>
+**The Legible Loop**: The ideal agentic loop is a straight line where the agent observes, acts, and verifies without friction.
+Failures fall into two buckets:
+1. **Absolute Tooling Failure (Missing Capabilities)**: The agent physically cannot "see" or "act" (e.g., cannot inspect a UI hierarchy).
+2. **Inefficient Tooling (Friction)**: The tool exists but is illegible (cryptic errors, massive logs) or slow, causing the agent to spiral or invent workarounds.
+</concept_context>
+
 <instructions>
 Synthesize the provided JSON telemetry of mechanical loop failures into a highly focused, actionable spec sheet.
-Your goal is to identify exactly what tools need to be built or fixed to enable a frictionless, straight-line execution loop.
+Your goal is to identify exactly what tools need to be built or fixed to enable a frictionless, straight-line execution loop ("The Legible Loop").
 
 **Report Structure:**
 
 1.  **Header**:
-    *   Title: "# Friction Report: Agent Tooling Gaps & Legibility"
+    *   Title: "# Agentic Loop Friction Report: Tooling Gaps & Legibility"
     *   Date & Target Directory.
 2.  **Executive Summary & Velocity Analysis**: 
     *   Briefly assess the mechanical environment's legibility.
     *   Analyze the **Session Density**: How intense was the debugging activity over the ${metadata.startTime} to ${metadata.endTime} period? Does high density correlate with specific friction types?
-3.  **The Blind Spots (Missing Capabilities)**:
+3.  **Absolute Tooling Failures (Missing Capabilities)**:
     *   Analyze the \`missing_capabilities\` array.
-    *   Identify exactly what new tools, "senses", or MCP servers MUST be built because the agent fundamentally cannot observe or act on specific states.
-4.  **Missed Opportunities (Tool Usage vs. Goals)**:
+    *   Identify exactly what new tools, "senses", or MCP servers MUST be built because the agent fundamentally cannot observe or act on specific states (e.g. "Agent blindly guessing UI state because it cannot see the screen").
+4. **Inefficient Tooling (Friction Overview)**:
+    *   Analyze \`illegible_environments\` and \`flaky_or_slow_tools\`.
+    *   Identify tools that exist but actively fight the agent's loop (e.g., massive logs, cryptic errors, slow builds).
+5.  **System Tool Feedback (Built-in)**:
+    *   Focus SPECIFICALLY on built-in tools like 'read_file', 'replace', 'run_shell_command'.
+    *   Critique their "Legibility": Do they output clear, parseable text? Are they brittle?
+    *   Recommend specific improvements (e.g., "Replace 'replace' with a unified diff tool").
+6.  **Custom Tool Feedback (Domain Specific)**:
+    *   Focus SPECIFICALLY on custom tools (e.g., 'jetpack', 'adb').
+    *   Critique their CLI interface: Is the output designed for a human or an agent?
+    *   Recommend specific modifications (e.g., "Add a --json flag to the 'jetpack' tool").
+7.  **Missed Opportunities (Tool Usage vs. Goals)**:
     *   Review the <session_goals_sample>. The agent was engaged in specific types of work (e.g. UI debugging, refactoring).
     *   Compare this against the <custom_tool_context>. **Are there available tools that perfectly matched these goals but were IGNORED or BYPASSED by the agent?**
     *   *Example:* "The agent spent 3 days debugging Widgets but never called the available \`widget-switch\` tool."
     *   Critique the tool discovery: Why did the agent miss it? (Description too vague? Too hard to invoke?)
-5.  **System Tool Feedback (Built-in)**:
-    *   Analyze friction related to built-in system tools like 'read_file', 'replace'.
-    *   Recommend specific improvements. For example, if 'replace' is brittle, suggest a unified diff tool.
-6.  **Custom Tool Feedback (Domain Specific)**:
-    *   Analyze friction related to custom tools (e.g. 'jetpack').
-    *   Recommend specific modifications to their CLI interface.
-7.  **Emergent Tools (Actionable Workarounds)**:
+8. **Emergent Tools (Actionable Workarounds)**:
     *   Analyze \`stubborn_workarounds\`.
     *   List the clever, brittle scripts or massive command chains the agent invented.
     *   **Recommendation**: Specify which of these workarounds we should immediately formalize into reliable, permanent tools.
