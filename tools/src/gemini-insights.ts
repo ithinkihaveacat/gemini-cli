@@ -120,6 +120,7 @@ function loadSkillsDocumentation(skillsDir: string): string {
   }
 
   let documentation = "";
+  let validSkillCount = 0;
   const skillFolders = fs
     .readdirSync(skillsDir)
     .filter((f) => fs.statSync(path.join(skillsDir, f)).isDirectory());
@@ -134,6 +135,7 @@ function loadSkillsDocumentation(skillsDir: string): string {
     );
 
     if (fs.existsSync(skillMdPath)) {
+      validSkillCount++;
       documentation += `\n--- Skill: ${skill} ---\n`;
       documentation += fs.readFileSync(skillMdPath, "utf8");
     }
@@ -144,10 +146,16 @@ function loadSkillsDocumentation(skillsDir: string): string {
     }
   }
 
-  if (!documentation) {
+  if (validSkillCount === 0) {
+    console.warn(
+      `Warning: No valid skills (SKILL.md) found in ${skillsDir}. Analysis will lack custom tool context.`
+    );
     return "No valid SKILL.md files found in skills directory.";
   }
 
+  console.error(
+    `Info: Loaded ${validSkillCount} custom skills from ${skillsDir}`
+  );
   return documentation;
 }
 

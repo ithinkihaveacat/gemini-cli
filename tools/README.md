@@ -70,6 +70,34 @@ Analyzes Gemini CLI chat logs to generate an **Agentic Loop Friction Report**.
 It identifies mechanical loop failures, tooling gaps, and environmental
 friction, and provides actionable feedback to improve the agentic loop.
 
+**How It Works:**
+
+The tool uses a **Map-Reduce** approach:
+
+1.  **Map (Parallel Analysis)**: Each chat session is analyzed individually by a
+    fast model (`gemini-3-flash-preview`). It extracts mechanical friction
+    points (like flaky tools or missing capabilities) and identifies the
+    session's primary goal.
+2.  **Reduce (Aggregation)**: All extracted insights are aggregated and passed
+    to a stronger reasoning model (`gemini-3-pro-preview`). This model
+    synthesizes the findings into a cohesive "Friction Report," identifying
+    systemic patterns and prioritizing the most critical tooling gaps.
+
+**Context & Skills:**
+
+Providing the correct `--skills-dir` is critical for a high-quality analysis.
+The tool loads all `SKILL.md` files from this directory to understand what
+capabilities the agent _should_ have had access to.
+
+- **Why it matters**: The "Missed Opportunities" section of the report relies
+  entirely on comparing the agent's actual behavior against the available
+  skills. If the tool doesn't know about a skill, it cannot flag that the agent
+  failed to use it.
+- **When it fails**: If you run analysis on logs generated on a machine with a
+  rich set of custom skills, but analyze them on a machine without those skills
+  (or point to the wrong directory), the report will miss critical insights
+  about tool discovery failures.
+
 **Features:**
 
 - **Friction Detection**: Identifies "Inefficient Tooling" (flaky, slow, or
