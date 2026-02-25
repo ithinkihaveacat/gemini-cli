@@ -29,7 +29,7 @@ import { parseArgs } from "node:util";
 import { DEFAULT_LEGACY_SET } from "@google/gemini-cli-core/dist/src/tools/definitions/model-family-sets/default-legacy.js";
 
 const ANALYSIS_MODEL = "gemini-3-flash-preview";
-const AGGREGATION_MODEL = "gemini-3.1-pro-preview";
+const AGGREGATION_MODEL = "gemini-3-pro-preview";
 const MAX_TOTAL_RETRIES = 10;
 const MAX_RETRIES_PER_REQUEST = 3;
 const DEFAULT_SKILLS_DIR = path.join(os.homedir(), ".agents", "skills");
