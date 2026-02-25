@@ -129,3 +129,39 @@ main repository.
    - **Fix**: Run `./tools/build.sh` again. It explicitly triggers a rebuild of
      `packages/core` and automatically attempts to install missing dependencies
      if the build fails.
+
+### Development Guidelines
+
+- **Imports**: When importing from core, try to import from stable utilities or
+  services. Avoid deep links into internal implementation details if possible.
+- **Data Handling**: Always use the provided utility functions (like
+  `partListUnionToString`) to handle data structures, as these handle backward
+  compatibility and format changes (e.g., string vs. array content).
+
+## Design Decisions
+
+### Authentication via Environment Variables
+
+The tools in this directory use the `GEMINI_API_KEY` environment variable
+directly for authentication rather than reusing the main application's `Config`
+object or authentication flow (e.g., `gemini auth login`).
+
+**Rationale:**
+
+1.  **Simplicity**: Instantiating the full `Config` object from `packages/core`
+    brings in a heavy dependency tree (tool registries, agent registries, file
+    system services) that is unnecessary for simple analysis scripts.
+2.  **Stability**: The `Config` constructor and initialization logic change
+    frequently during development. Relying on the raw `GoogleGenAI` SDK keeps
+    these tools more stable and less prone to breaking changes in the main CLI's
+    startup sequence.
+3.  **Isolation**: Keeping these tools lightweight allows them to run with
+    minimal setup, making them easier to debug and maintain independently of the
+    main application's state management.
+
+**Future Considerations:**
+
+If these tools evolve into user-facing extensions or require complex
+capabilities (like accessing user-configured proxy settings, custom headers, or
+OAuth credentials), it may be worth migrating to use `createContentGenerator`
+and `Config` from `@google/gemini-cli-core`.
