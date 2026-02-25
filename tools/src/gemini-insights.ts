@@ -653,7 +653,11 @@ You are a Staff Platform Engineer responsible for building the foundational envi
 Target Directory: ${metadata.directory}
 Analysis Date: ${now}
 Data Span: ${metadata.startTime} to ${metadata.endTime}
-Logs Analyzed: ${metadata.analyzedCount}
+Sessions Found: ${metadata.totalFound}
+Sessions Analyzed: ${metadata.analyzedCount}
+Raw Data Processed: ${formatBytes(metadata.totalRawBytes)}
+Filtered Transcript Data: ${formatBytes(metadata.totalFilteredBytes)}
+Extracted Insights Data: ${formatBytes(metadata.totalSummarizedBytes)}
 Logs with Detected Friction: ${sessionData.length}
 </context>
 
@@ -691,7 +695,11 @@ Your goal is to identify exactly what tools need to be built or fixed to enable 
 
 1.  **Header**:
     *   Title: "# Agentic Loop Friction Report: Tooling Gaps & Legibility"
-    *   Date & Target Directory.
+    *   Include a concise **Analysis Metadata** block (as a table or list) showing:
+        *   Target Directory
+        *   Data Span (Start to End)
+        *   Sessions Found vs. Analyzed
+        *   Data Volumes: Raw processed, Filtered transcript size, and Extracted insight size.
 2.  **Executive Summary & Velocity Analysis**: 
     *   Briefly assess the mechanical environment's legibility.
     *   Analyze the **Session Density**: How intense was the debugging activity over the ${metadata.startTime} to ${metadata.endTime} period? Does high density correlate with specific friction types?
