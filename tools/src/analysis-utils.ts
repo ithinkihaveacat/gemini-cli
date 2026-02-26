@@ -123,15 +123,135 @@ export async function analyzeInParallel<T>(
   });
 }
 
+export interface SessionTelemetry {
+  /** Total wall-clock time from session start to last update */
+  totalSessionTimeMs: number;
+  /** (1) Total time spent waiting for the model to respond successfully */
+  totalWaitServerSuccessTimeMs: number;
+  /** (3) Total time spent waiting for a response that resulted in an API error */
+  totalWaitServerErrorTimeMs: number;
+  /** Total time spent waiting before the user interrupted/cancelled the request */
+  totalWaitServerCancelTimeMs: number;
+
+  /** Total time spent waiting for tools/scripts to execute (Environment bottleneck) */
+  totalWaitToolsTimeMs: number;
+  /** Total time spent waiting for the human user to provide input (Human bottleneck) */
+  totalWaitUserTimeMs: number;
+  /** Remainder time (internal CLI processing, overhead) */
+  totalInternalTimeMs: number;
+
+  /** Details of API errors encountered */
+  apiErrors: {
+    message: string;
+    waitTimeMs: number;
+    timestamp: string;
+  }[];
+  /** Details of successful responses that were exceptionally slow */
+  slowResponses: {
+    waitTimeMs: number;
+    timestamp: string;
+    firstThoughtSubject?: string;
+  }[];
+  /** Details of user cancellations */
+  cancelledResponses: {
+    waitTimeMs: number;
+    timestamp: string;
+  }[];
+}
+
 export function readAndFormatChatLog(filePath: string): {
   content: string;
   rawSize: number;
   filteredSize: number;
   session: ConversationRecord;
+  telemetry: SessionTelemetry;
 } | null {
   const fileContent = fs.readFileSync(filePath, "utf8");
   const rawSize = Buffer.byteLength(fileContent, "utf8");
   const session: ConversationRecord = JSON.parse(fileContent);
+
+  const SLOW_RESPONSE_THRESHOLD_MS = 180000; // 3 minutes
+
+  let totalWaitServerSuccessTimeMs = 0;
+  let totalWaitServerErrorTimeMs = 0;
+  let totalWaitServerCancelTimeMs = 0;
+  let totalWaitToolsTimeMs = 0;
+  let totalWaitUserTimeMs = 0;
+
+  const apiErrors: SessionTelemetry["apiErrors"] = [];
+  const slowResponses: SessionTelemetry["slowResponses"] = [];
+  const cancelledResponses: SessionTelemetry["cancelledResponses"] = [];
+
+  // Track the absolute "last known activity" timestamp to measure gaps.
+  let lastActivityTime = new Date(session.startTime).getTime();
+
+  for (let i = 0; i < session.messages.length; i++) {
+    const msg = session.messages[i];
+    const msgTime = new Date(msg.timestamp).getTime();
+
+    // Gap Analysis (from last activity to start of this message)
+    if (msgTime > lastActivityTime) {
+      const gap = msgTime - lastActivityTime;
+
+      if (msg.type === "gemini") {
+        totalWaitServerSuccessTimeMs += gap;
+        if (gap > SLOW_RESPONSE_THRESHOLD_MS) {
+          slowResponses.push({
+            waitTimeMs: gap,
+            timestamp: msg.timestamp,
+            firstThoughtSubject: msg.thoughts?.[0]?.subject
+          });
+        }
+      } else if (msg.type === "error") {
+        totalWaitServerErrorTimeMs += gap;
+        const content = partListUnionToString(msg.content);
+        if (content.includes("[API Error:")) {
+          apiErrors.push({
+            message: content,
+            waitTimeMs: gap,
+            timestamp: msg.timestamp
+          });
+        }
+      } else if (msg.type === "user") {
+        totalWaitUserTimeMs += gap;
+      } else if (
+        msg.type === "info" &&
+        msg.content.toString().includes("Request cancelled")
+      ) {
+        totalWaitServerCancelTimeMs += gap;
+        cancelledResponses.push({ waitTimeMs: gap, timestamp: msg.timestamp });
+      }
+    }
+
+    // Update last activity to the END of this message/turn
+    lastActivityTime = msgTime;
+    if (msg.type === "gemini" && msg.toolCalls && msg.toolCalls.length > 0) {
+      let turnEndTime = msgTime;
+      for (const tc of msg.toolCalls) {
+        if (tc.timestamp) {
+          const tcEndTime = new Date(tc.timestamp).getTime();
+          if (tcEndTime > turnEndTime) turnEndTime = tcEndTime;
+        }
+      }
+      const toolWait = turnEndTime - msgTime;
+      totalWaitToolsTimeMs += toolWait;
+      lastActivityTime = turnEndTime;
+    }
+  }
+
+  const totalSessionTimeMs =
+    new Date(session.lastUpdated).getTime() -
+    new Date(session.startTime).getTime();
+
+  const totalInternalTimeMs = Math.max(
+    0,
+    totalSessionTimeMs -
+      (totalWaitServerSuccessTimeMs +
+        totalWaitServerErrorTimeMs +
+        totalWaitServerCancelTimeMs +
+        totalWaitToolsTimeMs +
+        totalWaitUserTimeMs)
+  );
 
   const transcript = session.messages
     .map((m: MessageRecord) => {
@@ -155,7 +275,19 @@ export function readAndFormatChatLog(filePath: string): {
     content: transcript,
     rawSize,
     filteredSize,
-    session
+    session,
+    telemetry: {
+      totalSessionTimeMs,
+      totalWaitServerSuccessTimeMs,
+      totalWaitServerErrorTimeMs,
+      totalWaitServerCancelTimeMs,
+      totalWaitToolsTimeMs,
+      totalWaitUserTimeMs,
+      totalInternalTimeMs,
+      apiErrors,
+      slowResponses,
+      cancelledResponses
+    }
   };
 }
 

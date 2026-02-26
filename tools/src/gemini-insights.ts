@@ -20,7 +20,7 @@ import {
   runWithRetry,
   MAX_AGGREGATION_BYTES
 } from "./analysis-utils.js";
-import type { BaseProcessResult } from "./analysis-utils.js";
+import type { BaseProcessResult, SessionTelemetry } from "./analysis-utils.js";
 import { GoogleGenAI, Type } from "@google/genai";
 import fs from "node:fs";
 import path from "node:path";
@@ -85,6 +85,7 @@ interface LoopAnalysisInsight {
   timestamp?: string;
   ref?: string; // Standard Citation ID
   primary_goal?: string; // New field for session goal
+  telemetry?: SessionTelemetry;
   missing_capabilities?: MissingCapability[];
   illegible_environments?: IllegibleEnvironment[];
   flaky_or_slow_tools?: FlakyOrSlowTool[];
@@ -387,7 +388,7 @@ async function processLogFile(
   const resultData = readAndFormatChatLog(filePath);
   if (!resultData) return null;
 
-  const { content: transcript, rawSize, filteredSize } = resultData;
+  const { content: transcript, rawSize, filteredSize, telemetry } = resultData;
 
   if (filteredSize > MAX_AGGREGATION_BYTES) {
     console.error(
@@ -426,6 +427,7 @@ ${escapeHtml(customToolContext.slice(0, MAX_CUSTOM_CONTEXT_BYTES))}
     - **Illegible Environments (Inefficient Tooling)**: The tool existed, but actively hindered the loop. Output was truncated, cryptic, massive, or silent. **CRITICAL**: Identify if the tool is 'system' or 'custom'.
     - **Flaky or Slow Tools (Inefficient Tooling)**: Tools that broke the tight iteration loop by taking too long or failing randomly.
     - **Stubborn Workarounds**: Look for loud alarms! Did the agent write a custom script (Python/Bash) to parse a log? Did it chain 5 \`grep\`/\`sed\` commands together because a default tool output was bad?
+    - **NOTE**: API errors and server latency are tracked deterministically and will be added later; you do NOT need to report them unless they caused a specific *behavioral* shift in the agent (like it trying a new workaround).
 
 **IMPORTANT EXCLUSION:**
 If you see the text \`[ANALYSIS_SCRIPT_TRUNCATED_THIS_LOG_FOR_BREVITY_THE_AGENT_SAW_FULL_CONTENT]\`, this was inserted by the analysis script you are currently running. The original agent **SAW THE FULL CONTENT**. Do NOT report this as a truncation failure or illegible environment. Only report truncation if the *tool output itself* says "Output truncated" or similar.
@@ -571,6 +573,7 @@ ${transcript}
 
   data.sessionFile = filePath;
   data.timestamp = new Date(fs.statSync(filePath).mtime).toISOString();
+  data.telemetry = telemetry;
 
   // Format: "session-YYYY-MM-DDTHH-MM-hash.json" -> "YYYY-MM-DDTHH-MM"
   const filename = path.basename(filePath);
@@ -607,6 +610,7 @@ async function aggregateToolingGapAnalysis(
     .map((insight) => ({
       ref: insight.ref || "unknown",
       primary_goal: insight.primary_goal || "Unknown",
+      telemetry: insight.telemetry,
       missing_capabilities: insight.missing_capabilities || [],
       illegible_environments: insight.illegible_environments || [],
       flaky_or_slow_tools: insight.flaky_or_slow_tools || [],
@@ -617,7 +621,11 @@ async function aggregateToolingGapAnalysis(
         s.missing_capabilities.length > 0 ||
         s.illegible_environments.length > 0 ||
         s.flaky_or_slow_tools.length > 0 ||
-        s.stubborn_workarounds.length > 0
+        s.stubborn_workarounds.length > 0 ||
+        (s.telemetry &&
+          (s.telemetry.apiErrors.length > 0 ||
+            s.telemetry.slowResponses.length > 0 ||
+            s.telemetry.cancelledResponses.length > 0))
     );
 
   const goalSummary = insights
@@ -680,6 +688,7 @@ ${escapeHtml(customToolContext.slice(0, MAX_CUSTOM_CONTEXT_BYTES))}
 Failures fall into two buckets:
 1. **Absolute Tooling Failure (Missing Capabilities)**: The agent physically cannot "see" or "act" (e.g., cannot inspect a UI hierarchy).
 2. **Inefficient Tooling (Friction)**: The tool exists but is illegible (cryptic errors, massive logs) or slow, causing the agent to spiral or invent workarounds.
+3. **Server-Side Friction (Latency & Errors)**: The model itself or the API provider is the bottleneck.
 </concept_context>
 
 <instructions>
@@ -702,27 +711,38 @@ Your goal is to identify exactly what tools need to be built or fixed to enable 
         *   Data Volumes: Raw processed, Filtered transcript size, and Extracted insight size.
 2.  **Executive Summary & Velocity Analysis**: 
     *   Briefly assess the mechanical environment's legibility.
+    *   **Velocity Breakdown**: Use the telemetry totals to summarize where time is being spent across all analyzed sessions. **Report all durations in SECONDS**:
+        *   **Successful Server Responses**: Total time the model was processing/generating successful turns.
+        *   **Failed Server Responses**: Total time wasted waiting for API errors.
+        *   **Waiting for Tools**: Total time spent executing scripts/tools.
+        *   **Waiting for User**: Total time the agent was idle waiting for human input.
+        *   **Internal Overhead**: Remaining execution time.
     *   Analyze the **Session Density**: How intense was the debugging activity over the ${metadata.startTime} to ${metadata.endTime} period? Does high density correlate with specific friction types?
-3.  **Absolute Tooling Failures (Missing Capabilities)**:
+3.  **Server-Side Friction**:
+    *   Analyze the \`telemetry\` data across all sessions.
+    *   Quantify the impact of API errors (e.g., quota issues, timeouts) using the deterministic \`totalWaitServerErrorTimeMs\`.
+    *   Quantify the impact of **Server Latency**: How many sessions were slowed down by responses taking >180s (3 minutes)? Use \`totalWaitServerSuccessTimeMs\` (and detailed \`slowResponses\`) to show the time impact of successful but slow responses.
+    *   Quantify **User Interruptions**: How often did the user cancel a request before the model responded? Use \`totalWaitServerCancelTimeMs\` to report the total "wasted wait time" from these interruptions.
+4.  **Absolute Tooling Failures (Missing Capabilities)**:
     *   Analyze the \`missing_capabilities\` array.
     *   Identify exactly what new tools, "senses", or MCP servers MUST be built because the agent fundamentally cannot observe or act on specific states (e.g. "Agent blindly guessing UI state because it cannot see the screen").
-4. **Inefficient Tooling (Friction Overview)**:
+5. **Inefficient Tooling (Friction Overview)**:
     *   Analyze \`illegible_environments\` and \`flaky_or_slow_tools\`.
     *   Identify tools that exist but actively fight the agent's loop (e.g., massive logs, cryptic errors, slow builds).
-5.  **System Tool Feedback (Built-in)**:
+6.  **System Tool Feedback (Built-in)**:
     *   Focus SPECIFICALLY on built-in tools like 'read_file', 'replace', 'run_shell_command'.
     *   Critique their "Legibility": Do they output clear, parseable text? Are they brittle?
     *   Recommend specific improvements (e.g., "Replace 'replace' with a unified diff tool").
-6.  **Custom Tool Feedback (Domain Specific)**:
+7.  **Custom Tool Feedback (Domain Specific)**:
     *   Focus SPECIFICALLY on custom tools (e.g., 'jetpack', 'adb').
     *   Critique their CLI interface: Is the output designed for a human or an agent?
     *   Recommend specific modifications (e.g., "Add a --json flag to the 'jetpack' tool").
-7.  **Missed Opportunities (Tool Usage vs. Goals)**:
+8.  **Missed Opportunities (Tool Usage vs. Goals)**:
     *   Review the <session_goals_sample>. The agent was engaged in specific types of work (e.g. UI debugging, refactoring).
     *   Compare this against the <custom_tool_context>. **Are there available tools that perfectly matched these goals but were IGNORED or BYPASSED by the agent?**
     *   *Example:* "The agent spent 3 days debugging Widgets but never called the available \`widget-switch\` tool."
     *   Critique the tool discovery: Why did the agent miss it? (Description too vague? Too hard to invoke?)
-8. **Emergent Tools (Actionable Workarounds)**:
+9. **Emergent Tools (Actionable Workarounds)**:
     *   Analyze \`stubborn_workarounds\`.
     *   List the clever, brittle scripts or massive command chains the agent invented.
     *   **Recommendation**: Specify which of these workarounds we should immediately formalize into reliable, permanent tools.
