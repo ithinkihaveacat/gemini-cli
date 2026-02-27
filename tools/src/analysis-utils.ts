@@ -239,9 +239,28 @@ export function readAndFormatChatLog(filePath: string): {
     }
   }
 
+  // Determine the effective end time of the session based on the last activity
+  // (message or tool call) rather than the file's modification time, which
+  // can include hours of idle time after the user walked away.
+  let sessionEndTime = new Date(session.startTime).getTime();
+  if (session.messages.length > 0) {
+    const lastMsg = session.messages[session.messages.length - 1];
+    sessionEndTime = new Date(lastMsg.timestamp).getTime();
+
+    // If the last message has tool calls, checking their timestamps is also prudent,
+    // though usually the message timestamp covers the thought process.
+    if (lastMsg.type === "gemini" && lastMsg.toolCalls) {
+      for (const tc of lastMsg.toolCalls) {
+        if (tc.timestamp) {
+          const tcEnd = new Date(tc.timestamp).getTime();
+          if (tcEnd > sessionEndTime) sessionEndTime = tcEnd;
+        }
+      }
+    }
+  }
+
   const totalSessionTimeMs =
-    new Date(session.lastUpdated).getTime() -
-    new Date(session.startTime).getTime();
+    sessionEndTime - new Date(session.startTime).getTime();
 
   const totalInternalTimeMs = Math.max(
     0,
@@ -252,7 +271,6 @@ export function readAndFormatChatLog(filePath: string): {
         totalWaitToolsTimeMs +
         totalWaitUserTimeMs)
   );
-
   const transcript = session.messages
     .map((m: MessageRecord) => {
       const role = m.type.toUpperCase();
