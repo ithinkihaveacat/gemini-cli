@@ -137,8 +137,12 @@ export interface SessionTelemetry {
   totalWaitToolsTimeMs: number;
   /** Total time spent waiting for the human user to provide input (Human bottleneck) */
   totalWaitUserTimeMs: number;
+  /** Time where the user likely walked away (gaps > 10m) */
+  totalWaitIdleTimeMs: number;
   /** Remainder time (internal CLI processing, overhead) */
   totalInternalTimeMs: number;
+  /** Whether any textless tool calls were detected and re-attributed */
+  hasTextlessToolCalls: boolean;
 
   /** Details of API errors encountered */
   apiErrors: {
@@ -167,12 +171,15 @@ export function calculateSessionTelemetry(
   session: ConversationRecord
 ): SessionTelemetry {
   const SLOW_RESPONSE_THRESHOLD_MS = 180000; // 3 minutes
+  const USER_WALKAWAY_THRESHOLD_MS = 600000; // 10 minutes
 
   let totalWaitServerSuccessTimeMs = 0;
   let totalWaitServerErrorTimeMs = 0;
   let totalWaitServerCancelTimeMs = 0;
   let totalWaitToolsTimeMs = 0;
   let totalWaitUserTimeMs = 0;
+  let totalWaitIdleTimeMs = 0;
+  let hasTextlessToolCalls = false;
 
   const apiErrors: SessionTelemetry["apiErrors"] = [];
   const slowResponses: SessionTelemetry["slowResponses"] = [];
@@ -185,12 +192,38 @@ export function calculateSessionTelemetry(
     const msg = session.messages[i];
     const msgTime = new Date(msg.timestamp).getTime();
 
+    let isTextlessToolCall = false;
+
     // Gap Analysis (from last activity to start of this message)
     if (msgTime > lastActivityTime) {
       const gap = msgTime - lastActivityTime;
 
       if (msg.type === "gemini") {
-        totalWaitServerSuccessTimeMs += gap;
+        // DETECT TEXTLESS TOOL CALLS:
+        // In the CLI, if Gemini provides tool calls without text, the "gemini" message
+        // is recorded AFTER the tools finish. In this case, msg.timestamp matches
+        // the end of the tool calls. We should attribute most of this gap to tools,
+        // using a small constant (1s) for model latency.
+        if (msg.toolCalls && msg.toolCalls.length > 0) {
+          const latestToolTimestamp = Math.max(
+            ...msg.toolCalls.map((tc) =>
+              tc.timestamp ? new Date(tc.timestamp).getTime() : 0
+            )
+          );
+          if (msgTime === latestToolTimestamp) {
+            isTextlessToolCall = true;
+          }
+        }
+
+        if (isTextlessToolCall) {
+          hasTextlessToolCalls = true;
+          const estimatedModelLatency = Math.min(1000, gap);
+          totalWaitServerSuccessTimeMs += estimatedModelLatency;
+          totalWaitToolsTimeMs += gap - estimatedModelLatency;
+        } else {
+          totalWaitServerSuccessTimeMs += gap;
+        }
+
         if (gap > SLOW_RESPONSE_THRESHOLD_MS) {
           slowResponses.push({
             waitTimeMs: gap,
@@ -209,7 +242,12 @@ export function calculateSessionTelemetry(
           });
         }
       } else if (msg.type === "user") {
-        totalWaitUserTimeMs += gap;
+        if (gap > USER_WALKAWAY_THRESHOLD_MS) {
+          totalWaitUserTimeMs += USER_WALKAWAY_THRESHOLD_MS;
+          totalWaitIdleTimeMs += gap - USER_WALKAWAY_THRESHOLD_MS;
+        } else {
+          totalWaitUserTimeMs += gap;
+        }
       } else if (
         msg.type === "info" &&
         msg.content.toString().includes("Request cancelled")
@@ -221,7 +259,15 @@ export function calculateSessionTelemetry(
 
     // Update last activity to the END of this message/turn
     lastActivityTime = msgTime;
-    if (msg.type === "gemini" && msg.toolCalls && msg.toolCalls.length > 0) {
+
+    // If it's a normal tool call (not textless), we need to add the tool execution time
+    // that happened AFTER the gemini message was recorded.
+    if (
+      !isTextlessToolCall &&
+      msg.type === "gemini" &&
+      msg.toolCalls &&
+      msg.toolCalls.length > 0
+    ) {
       let turnEndTime = msgTime;
       for (const tc of msg.toolCalls) {
         if (tc.timestamp) {
@@ -261,11 +307,12 @@ export function calculateSessionTelemetry(
   const totalInternalTimeMs = Math.max(
     0,
     totalSessionTimeMs -
-      (totalWaitServerSuccessTimeMs +
-        totalWaitServerErrorTimeMs +
-        totalWaitServerCancelTimeMs +
-        totalWaitToolsTimeMs +
-        totalWaitUserTimeMs)
+      totalWaitServerSuccessTimeMs -
+      totalWaitServerErrorTimeMs -
+      totalWaitServerCancelTimeMs -
+      totalWaitToolsTimeMs -
+      totalWaitUserTimeMs -
+      totalWaitIdleTimeMs
   );
 
   return {
@@ -275,7 +322,10 @@ export function calculateSessionTelemetry(
     totalWaitServerCancelTimeMs,
     totalWaitToolsTimeMs,
     totalWaitUserTimeMs,
+    totalWaitIdleTimeMs,
     totalInternalTimeMs,
+
+    hasTextlessToolCalls,
     apiErrors,
     slowResponses,
     cancelledResponses
