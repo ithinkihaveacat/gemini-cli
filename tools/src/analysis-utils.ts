@@ -124,7 +124,7 @@ export async function analyzeInParallel<T>(
 }
 
 export interface SessionTelemetry {
-  /** Total wall-clock time from session start to last update */
+  /** Total wall-clock time from session start to last activity */
   totalSessionTimeMs: number;
   /** (1) Total time spent waiting for the model to respond successfully */
   totalWaitServerSuccessTimeMs: number;
@@ -159,17 +159,13 @@ export interface SessionTelemetry {
   }[];
 }
 
-export function readAndFormatChatLog(filePath: string): {
-  content: string;
-  rawSize: number;
-  filteredSize: number;
-  session: ConversationRecord;
-  telemetry: SessionTelemetry;
-} | null {
-  const fileContent = fs.readFileSync(filePath, "utf8");
-  const rawSize = Buffer.byteLength(fileContent, "utf8");
-  const session: ConversationRecord = JSON.parse(fileContent);
-
+/**
+ * Deterministically calculates session wait times and friction points.
+ * @param session The conversation record to analyze.
+ */
+export function calculateSessionTelemetry(
+  session: ConversationRecord
+): SessionTelemetry {
   const SLOW_RESPONSE_THRESHOLD_MS = 180000; // 3 minutes
 
   let totalWaitServerSuccessTimeMs = 0;
@@ -271,6 +267,34 @@ export function readAndFormatChatLog(filePath: string): {
         totalWaitToolsTimeMs +
         totalWaitUserTimeMs)
   );
+
+  return {
+    totalSessionTimeMs,
+    totalWaitServerSuccessTimeMs,
+    totalWaitServerErrorTimeMs,
+    totalWaitServerCancelTimeMs,
+    totalWaitToolsTimeMs,
+    totalWaitUserTimeMs,
+    totalInternalTimeMs,
+    apiErrors,
+    slowResponses,
+    cancelledResponses
+  };
+}
+
+export function readAndFormatChatLog(filePath: string): {
+  content: string;
+  rawSize: number;
+  filteredSize: number;
+  session: ConversationRecord;
+  telemetry: SessionTelemetry;
+} | null {
+  const fileContent = fs.readFileSync(filePath, "utf8");
+  const rawSize = Buffer.byteLength(fileContent, "utf8");
+  const session: ConversationRecord = JSON.parse(fileContent);
+
+  const telemetry = calculateSessionTelemetry(session);
+
   const transcript = session.messages
     .map((m: MessageRecord) => {
       const role = m.type.toUpperCase();
@@ -294,18 +318,7 @@ export function readAndFormatChatLog(filePath: string): {
     rawSize,
     filteredSize,
     session,
-    telemetry: {
-      totalSessionTimeMs,
-      totalWaitServerSuccessTimeMs,
-      totalWaitServerErrorTimeMs,
-      totalWaitServerCancelTimeMs,
-      totalWaitToolsTimeMs,
-      totalWaitUserTimeMs,
-      totalInternalTimeMs,
-      apiErrors,
-      slowResponses,
-      cancelledResponses
-    }
+    telemetry
   };
 }
 
