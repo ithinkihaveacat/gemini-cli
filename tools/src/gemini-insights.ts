@@ -711,18 +711,23 @@ Your goal is to identify exactly what tools need to be built or fixed to enable 
         *   Data Volumes: Raw processed, Filtered transcript size, and Extracted insight size.
 2.  **Executive Summary & Velocity Analysis**: 
     *   Briefly assess the mechanical environment's legibility.
-    *   **Velocity Breakdown**: Use the telemetry totals to summarize where time is being spent across all analyzed sessions. **Report all durations in SECONDS**:
+    *   **Velocity Breakdown**: Use the telemetry totals to summarize where time is being spent across all analyzed sessions. **Report all durations in MINUTES**:
         *   **Successful Server Responses**: Total time the model was processing/generating successful turns.
         *   **Failed Server Responses**: Total time wasted waiting for API errors.
         *   **Waiting for Tools**: Total time spent executing scripts/tools.
-        *   **Waiting for User**: Total time the agent was idle waiting for human input.
+        *   **User Active Time**: Time spent waiting for human input (Capped at 10m per turn).
+        *   **User Idle Time**: Time where the user likely walked away (Gaps > 10m). **EXCLUDE this from friction/velocity averages**.
         *   **Internal Overhead**: Remaining execution time.
+    *   **Outlier Handling**: Identify sessions with extreme "Internal Overhead" (>2 minutes) or massive tool loops (>50 turns).
+        *   **CRITICAL**: You MUST still synthesize and report **Server-Side Friction (API Errors/Latency)** from these outliers, as they are often the cause of the anomaly. 
+        *   **EXCLUDE** only their tool/internal/user timings from the *quantitative baseline averages* to prevent skewing.
     *   Analyze the **Session Density**: How intense was the debugging activity over the ${metadata.startTime} to ${metadata.endTime} period? Does high density correlate with specific friction types?
+    *   **User Presence**: Use the ratio of **Active Time** to **Idle Time** to characterize the human's role (e.g., "Highly interactive sessions with low idle time" vs "Batch processing where the user checked in sporadically").
 3.  **Server-Side Friction**:
-    *   Analyze the \`telemetry\` data across all sessions.
+    *   Analyze the \`telemetry\` data across **ALL sessions (including outliers)**.
     *   Quantify the impact of API errors (e.g., quota issues, timeouts) using the deterministic \`totalWaitServerErrorTimeMs\`.
     *   Quantify the impact of **Server Latency**: How many sessions were slowed down by responses taking >180s (3 minutes)? Use \`totalWaitServerSuccessTimeMs\` (and detailed \`slowResponses\`) to show the time impact of successful but slow responses.
-    *   Quantify **User Interruptions**: How often did the user cancel a request before the model responded? Use \`totalWaitServerCancelTimeMs\` to report the total "wasted wait time" from these interruptions.
+    *   Quantify **User Interruptions**: How often did the user cancel a request before the model responded? Use \`totalWaitServerCancelTimeMs\` to report the total "wasted wait time" (in minutes) from these interruptions.
 4.  **Absolute Tooling Failures (Missing Capabilities)**:
     *   Analyze the \`missing_capabilities\` array.
     *   Identify exactly what new tools, "senses", or MCP servers MUST be built because the agent fundamentally cannot observe or act on specific states (e.g. "Agent blindly guessing UI state because it cannot see the screen").
