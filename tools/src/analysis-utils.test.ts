@@ -5,7 +5,9 @@
  */
 import { describe, it, expect } from "vitest";
 import { calculateSessionTelemetry } from "./analysis-utils.js";
+import type { ConversationRecord } from "@google/gemini-cli-core/dist/src/services/chatRecordingService.js";
 import fs from "node:fs";
+
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 

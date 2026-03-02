@@ -144,6 +144,12 @@ export interface SessionTelemetry {
   /** Whether any textless tool calls were detected and re-attributed */
   hasTextlessToolCalls: boolean;
 
+  /** Breakdown of wait times by model */
+  modelBreakdown: Record<
+    string,
+    { successMs: number; errorMs: number; cancelMs: number }
+  >;
+
   /** Details of API errors encountered */
   apiErrors: {
     message: string;
@@ -181,6 +187,8 @@ export function calculateSessionTelemetry(
   let totalWaitIdleTimeMs = 0;
   let hasTextlessToolCalls = false;
 
+  const modelBreakdown: SessionTelemetry["modelBreakdown"] = {};
+
   const apiErrors: SessionTelemetry["apiErrors"] = [];
   const slowResponses: SessionTelemetry["slowResponses"] = [];
   const cancelledResponses: SessionTelemetry["cancelledResponses"] = [];
@@ -188,9 +196,28 @@ export function calculateSessionTelemetry(
   // Track the absolute "last known activity" timestamp to measure gaps.
   let lastActivityTime = new Date(session.startTime).getTime();
 
+  // Keep track of the model being used (defaults to session model or first found)
+  let currentModel = "unknown-model";
+  for (const m of session.messages) {
+    if (m.type === "gemini" && m.model) {
+      currentModel = m.model;
+      break;
+    }
+  }
+
   for (let i = 0; i < session.messages.length; i++) {
     const msg = session.messages[i];
     const msgTime = new Date(msg.timestamp).getTime();
+
+    // Update current model if message specifies one
+    if (msg.type === "gemini" && msg.model) {
+      currentModel = msg.model;
+    }
+
+    // Ensure model exists in breakdown
+    if (!modelBreakdown[currentModel]) {
+      modelBreakdown[currentModel] = { successMs: 0, errorMs: 0, cancelMs: 0 };
+    }
 
     let isTextlessToolCall = false;
 
@@ -219,9 +246,11 @@ export function calculateSessionTelemetry(
           hasTextlessToolCalls = true;
           const estimatedModelLatency = Math.min(1000, gap);
           totalWaitServerSuccessTimeMs += estimatedModelLatency;
+          modelBreakdown[currentModel].successMs += estimatedModelLatency;
           totalWaitToolsTimeMs += gap - estimatedModelLatency;
         } else {
           totalWaitServerSuccessTimeMs += gap;
+          modelBreakdown[currentModel].successMs += gap;
         }
 
         if (gap > SLOW_RESPONSE_THRESHOLD_MS) {
@@ -233,6 +262,7 @@ export function calculateSessionTelemetry(
         }
       } else if (msg.type === "error") {
         totalWaitServerErrorTimeMs += gap;
+        modelBreakdown[currentModel].errorMs += gap;
         const content = partListUnionToString(msg.content);
         if (content.includes("[API Error:")) {
           apiErrors.push({
@@ -253,6 +283,7 @@ export function calculateSessionTelemetry(
         msg.content.toString().includes("Request cancelled")
       ) {
         totalWaitServerCancelTimeMs += gap;
+        modelBreakdown[currentModel].cancelMs += gap;
         cancelledResponses.push({ waitTimeMs: gap, timestamp: msg.timestamp });
       }
     }
@@ -276,7 +307,33 @@ export function calculateSessionTelemetry(
         }
       }
       const toolWait = turnEndTime - msgTime;
-      totalWaitToolsTimeMs += toolWait;
+
+      // HEURISTIC: "Action Required" prompts.
+      // We only apply this to tools that are expected to be near-instantaneous.
+      // If they take > 2s, it's almost certainly a user confirmation prompt.
+      // We do NOT apply this to run_shell_command as it can legitimately take minutes.
+      const FAST_TOOLS = new Set([
+        "read_file",
+        "replace",
+        "write_file",
+        "grep_search",
+        "glob",
+        "list_directory"
+      ]);
+
+      // Check if all tools in this turn are "fast" tools
+      const isAllFastTools = msg.toolCalls.every((tc) =>
+        FAST_TOOLS.has(tc.name)
+      );
+
+      const PROMPT_THRESHOLD_MS = 2000;
+      if (isAllFastTools && toolWait > PROMPT_THRESHOLD_MS) {
+        totalWaitToolsTimeMs += PROMPT_THRESHOLD_MS;
+        totalWaitUserTimeMs += toolWait - PROMPT_THRESHOLD_MS;
+      } else {
+        totalWaitToolsTimeMs += toolWait;
+      }
+
       lastActivityTime = turnEndTime;
     }
   }
@@ -326,6 +383,7 @@ export function calculateSessionTelemetry(
     totalInternalTimeMs,
 
     hasTextlessToolCalls,
+    modelBreakdown,
     apiErrors,
     slowResponses,
     cancelledResponses

@@ -8,7 +8,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "start:insights": "node dist/gemini-insights.js",
-    "start:history": "node dist/gemini-history.js"
+    "start:history": "node dist/gemini-history.js",
+    "start:sankey": "node dist/gemini-sankey.js"
   },
   "dependencies": {
     "@google/gemini-cli-core": "file:../packages/core",
